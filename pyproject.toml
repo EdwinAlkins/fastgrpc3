@@ -1,0 +1,56 @@
+[project]
+name = "fastgrpc3"
+version = "0.1.0.dev0"
+description = "FastAPI-like gRPC framework for Python: contracts from .proto files or Pydantic models, powered by protoruf (Rust)"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+    { name = "William Nauroy", email = "william.nauroy@gmail.com" }
+]
+requires-python = ">=3.12"
+classifiers = [
+    "Development Status :: 1 - Planning",
+    "Framework :: AsyncIO",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: System :: Networking",
+    "Typing :: Typed",
+]
+dependencies = [
+    # First release shipping CPython 3.14 wheels.
+    "grpcio>=1.75.1",
+    "protoruf>=0.3.0",
+    # `model_validate(..., by_name=True)` appeared in 2.11.
+    "pydantic>=2.11",
+]
+
+[dependency-groups]
+dev = [
+    "mypy>=2.4",
+    "pytest>=9.2",
+    "pytest-asyncio>=1.4",
+    "ruff>=0.17",
+]
+
+[build-system]
+requires = ["uv_build>=0.13.4,<0.14.0"]
+build-backend = "uv_build"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"

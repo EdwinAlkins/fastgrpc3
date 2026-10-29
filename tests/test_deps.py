@@ -1,5 +1,8 @@
 """Dependency injection: sub-dependencies, cache, cleanup, overrides, signatures."""
 
+import asyncio
+import logging
+import time
 from collections.abc import AsyncIterator, Iterator
 from typing import Annotated, Any
 
@@ -15,8 +18,10 @@ from fastgrpc3 import (
     GrpcService,
     Insecure,
     StatusCode,
+    blocking,
+    non_blocking,
 )
-from fastgrpc3.api.deps import plan_dependencies
+from fastgrpc3.api.deps import SLOW_PROVIDER_SECONDS, plan_dependencies
 from fastgrpc3.testing import TestClient
 
 
@@ -217,6 +222,125 @@ async def test_dependencies_are_resolved_inside_the_middlewares() -> None:
         assert events == []
         assert (await deps.get(Req(), metadata={"x-user": "alice"})).text == "r"
         assert events == ["allowed", "open", "handler", "close"]
+
+
+async def test_blocking_providers_do_not_block_the_loop() -> None:
+    events: list[str] = []
+
+    @blocking
+    def slow() -> int:
+        time.sleep(0.1)  # blocking I/O
+        return 1
+
+    @blocking
+    def session() -> Iterator[str]:
+        time.sleep(0.05)
+        try:
+            yield "s"
+        except Exception as e:
+            events.append(f"rollback {e}")
+            raise
+        finally:
+            events.append("closed")
+
+    service = GrpcService("Deps", package="deps.v1")
+
+    @service.unary()
+    async def Get(
+        req: Req,
+        n: int = Depends(slow),
+        s: str = Depends(session),
+    ) -> Rep:
+        if req.n:
+            raise RuntimeError("boom")
+        return Rep(text=f"{s}{n}")
+
+    app = GrpcApp(tls=Insecure())
+    app.add_service(service)
+    async with TestClient(app) as tc:
+        deps = tc.client(DepsClient)
+        started = time.perf_counter()
+        replies = await asyncio.gather(*(deps.get(Req()) for _ in range(4)))
+        assert time.perf_counter() - started < 0.4  # 0.6 s if run one after the other
+        assert [r.text for r in replies] == ["s1"] * 4
+        assert events == ["closed"] * 4
+
+        events.clear()
+        with pytest.raises(GrpcError):
+            await deps.get(Req(n=1))
+        assert events == ["rollback boom", "closed"]
+
+
+async def test_a_slow_provider_on_the_loop_is_reported_once(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    def slow() -> int:
+        time.sleep(SLOW_PROVIDER_SECONDS * 2)
+        return 1
+
+    service = GrpcService("Deps", package="deps.v1")
+
+    @service.unary()
+    async def Get(req: Req, n: int = Depends(slow)) -> Rep:
+        return Rep(text=str(n))
+
+    app = GrpcApp(tls=Insecure())
+    app.add_service(service)
+    async with TestClient(app) as tc:
+        with caplog.at_level(logging.WARNING, logger="fastgrpc3"):
+            await tc.client(DepsClient).get(Req())
+            await tc.client(DepsClient).get(Req())
+    warnings = [r.getMessage() for r in caplog.records if "blocked the event loop" in r.message]
+    assert len(warnings) == 1
+    assert "slow" in warnings[0] and "@blocking" in warnings[0]
+
+
+def test_where_def_providers_run() -> None:
+    """A mark on the provider wins; unmarked `def` providers follow the app setting."""
+
+    def plain() -> int:
+        return 1
+
+    @blocking
+    def io() -> int:
+        return 2
+
+    @non_blocking
+    def quick() -> int:
+        return 3
+
+    async def coroutine() -> int:
+        return 4
+
+    providers = (plain, io, quick, coroutine)
+    dependencies = {f"d{i}": Depends(provider) for i, provider in enumerate(providers)}
+    on_loop = plan_dependencies(dependencies, overrides={})
+    assert [node.threadpool for node in on_loop.nodes] == [False, True, False, False]
+    in_threads = plan_dependencies(dependencies, overrides={}, threadpool=True)
+    assert [node.threadpool for node in in_threads.nodes] == [True, True, False, False]
+    with pytest.raises(TypeError, match="only `def` providers run in threads"):
+        blocking(coroutine)
+
+
+async def test_the_app_can_run_every_def_provider_in_a_thread() -> None:
+    def slow() -> int:
+        time.sleep(0.1)
+        return 1
+
+    service = GrpcService("Deps", package="deps.v1")
+
+    @service.unary()
+    async def Get(req: Req, n: int = Depends(slow)) -> Rep:
+        return Rep(text=str(n))
+
+    app = GrpcApp(tls=Insecure(), sync_providers="threadpool")
+    app.add_service(service)
+    async with TestClient(app) as tc:
+        started = time.perf_counter()
+        await asyncio.gather(*(tc.client(DepsClient).get(Req()) for _ in range(4)))
+        assert time.perf_counter() - started < 0.3
+    with pytest.raises(ValueError, match="sync_providers"):
+        GrpcApp(tls=Insecure(), sync_providers="threads")  # type: ignore[arg-type]
 
 
 def test_provider_parameters_must_be_filled() -> None:

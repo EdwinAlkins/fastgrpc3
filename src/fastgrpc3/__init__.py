@@ -4,7 +4,7 @@ from fastgrpc3.api.app import GrpcApp
 from fastgrpc3.api.client import Channel, GrpcClient
 from fastgrpc3.api.config import Compression, Keepalive, RetryPolicy
 from fastgrpc3.api.context import Context
-from fastgrpc3.api.deps import Depends
+from fastgrpc3.api.deps import Depends, blocking, non_blocking
 from fastgrpc3.api.errors import (
     BadRequest,
     ErrorInfo,
@@ -62,8 +62,10 @@ __all__ = [
     "ServiceDef",
     "StatusCode",
     "__version__",
+    "blocking",
     "field",
     "key",
+    "non_blocking",
     "proto_enum",
     "register_detail",
 ]

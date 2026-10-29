@@ -7,10 +7,20 @@ swallow it: if it does not raise it again, the call still fails. Within one call
 provider runs once and its value is shared (`use_cache=False` opts out). The graph is
 resolved when the server starts, with `dependency_overrides` applied, so a call does no
 introspection.
+
+A `def` provider (function or generator) runs on the event loop: cheap, but while it
+blocks, no other call of the process progresses. `@blocking` runs it in a thread instead
+(a round trip costs tens of µs), for providers that do blocking I/O. Unmarked `def`
+providers follow the app's `sync_providers` (`"loop"` by default, or `"threadpool"`), and
+`@non_blocking` keeps a provider on the loop whatever the app says. A `def` provider that
+holds the loop longer than `SLOW_PROVIDER_SECONDS` is reported once in the log.
 """
 
+import asyncio
 import contextlib
 import inspect
+import logging
+import time
 import typing
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
@@ -19,15 +29,25 @@ from typing import Annotated, Any, get_args, get_origin
 from fastgrpc3.api.context import Context
 
 __all__ = [
+    "SLOW_PROVIDER_SECONDS",
     "Dependency",
     "DependencyPlan",
     "Depends",
     "Parameter",
+    "blocking",
     "inspect_parameters",
+    "non_blocking",
     "plan_dependencies",
 ]
 
+logger = logging.getLogger("fastgrpc3")
+
 Provider = Callable[..., Any]
+
+#: A `def` provider that holds the event loop longer than this is reported (once).
+SLOW_PROVIDER_SECONDS = 0.01
+
+_THREADPOOL = "__fastgrpc3_threadpool__"  # the mark left by @blocking / @non_blocking
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,6 +64,24 @@ def Depends(dependency: Provider, *, use_cache: bool = True) -> Any:
     Typed `Any`, like FastAPI's, so that `repo: Repo = Depends(get_repo)` type-checks.
     """
     return Dependency(dependency, use_cache)
+
+
+def blocking[P: Provider](provider: P) -> P:
+    """Decorator: this `def` provider blocks (I/O), run it in a thread."""
+    return _mark(provider, threadpool=True)
+
+
+def non_blocking[P: Provider](provider: P) -> P:
+    """Decorator: this `def` provider is quick, run it on the event loop even when the app
+    runs `def` providers in threads."""
+    return _mark(provider, threadpool=False)
+
+
+def _mark[P: Provider](provider: P, *, threadpool: bool) -> P:
+    if inspect.iscoroutinefunction(provider) or inspect.isasyncgenfunction(provider):
+        raise TypeError(f"{_name(provider)}: only `def` providers run in threads")
+    setattr(provider, _THREADPOOL, threadpool)  # the function itself: overrides still match
+    return provider
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,6 +125,7 @@ class _Node:
     provider: Provider
     arguments: tuple[tuple[str, int | None], ...]  # (parameter, node index or None=Context)
     kind: str  # "call", "async", "generator", "async_generator"
+    threadpool: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,17 +157,22 @@ class DependencyPlan:
 
 
 def plan_dependencies(
-    dependencies: Mapping[str, Dependency], overrides: Mapping[Provider, Provider]
+    dependencies: Mapping[str, Dependency],
+    overrides: Mapping[Provider, Provider],
+    *,
+    threadpool: bool = False,
 ) -> DependencyPlan:
-    """Resolve the graph of the handler parameters `dependencies` (name -> `Dependency`)."""
-    builder = _PlanBuilder(overrides)
+    """Resolve the graph of the handler parameters `dependencies` (name -> `Dependency`);
+    `threadpool` is where unmarked `def` providers run."""
+    builder = _PlanBuilder(overrides, threadpool)
     outputs = tuple((name, builder.node(depends, ())) for name, depends in dependencies.items())
     return DependencyPlan(tuple(builder.nodes), outputs)
 
 
 class _PlanBuilder:
-    def __init__(self, overrides: Mapping[Provider, Provider]) -> None:
+    def __init__(self, overrides: Mapping[Provider, Provider], threadpool: bool) -> None:
         self.overrides = overrides
+        self.threadpool = threadpool
         self.nodes: list[_Node] = []
         self.cached: dict[Provider, int] = {}
 
@@ -150,7 +194,11 @@ class _PlanBuilder:
                     f"dependency {_name(provider)}: parameter {parameter.name!r} is neither "
                     "Depends(...) nor Context"
                 )
-        self.nodes.append(_Node(provider, tuple(arguments), _kind(provider)))
+        kind = _kind(provider)
+        threadpool = kind in ("call", "generator") and bool(
+            getattr(provider, _THREADPOOL, self.threadpool)
+        )
+        self.nodes.append(_Node(provider, tuple(arguments), kind, threadpool))
         index = len(self.nodes) - 1
         if depends.use_cache:
             self.cached[provider] = index
@@ -173,7 +221,12 @@ async def _call(
     if node.kind == "async":
         return await node.provider(**kwargs)
     if node.kind == "call":
-        result = node.provider(**kwargs)
+        if node.threadpool:
+            result = await asyncio.to_thread(node.provider, **kwargs)
+        else:
+            started = time.perf_counter()
+            result = node.provider(**kwargs)
+            _watch(node.provider, started)
         # A lambda returning a coroutine is still awaited, as in fastgrpc2.
         return await result if inspect.isawaitable(result) else result
     assert stack is not None  # plans with generators always get a stack
@@ -183,16 +236,25 @@ async def _call(
         stack.push_async_exit(_propagating_async(async_manager.__aexit__))
         return value
     manager = contextlib.contextmanager(node.provider)(**kwargs)
+    if node.threadpool:
+        value = await asyncio.to_thread(manager.__enter__)
+        in_thread = manager.__exit__
+        stack.push_async_exit(_propagating_async(lambda *d: asyncio.to_thread(in_thread, *d)))
+        return value
+    started = time.perf_counter()
     value = manager.__enter__()
-    stack.push(_propagating(manager.__exit__))
+    _watch(node.provider, started)
+    stack.push(_propagating(manager.__exit__, node.provider))
     return value
 
 
-def _propagating(exit: Callable[..., bool | None]) -> Callable[..., bool]:
+def _propagating(exit: Callable[..., bool | None], provider: Provider) -> Callable[..., bool]:
     """`exit`, run for its cleanup only: the exception it was given goes on."""
 
     def run(*details: Any) -> bool:
+        started = time.perf_counter()
         exit(*details)
+        _watch(provider, started)
         return False
 
     return run
@@ -208,6 +270,22 @@ def _propagating_async(
         return False
 
     return run
+
+
+_reported: set[Provider] = set()
+
+
+def _watch(provider: Provider, started: float) -> None:
+    """Report, once, a `def` provider that held the event loop too long."""
+    elapsed = time.perf_counter() - started
+    if elapsed > SLOW_PROVIDER_SECONDS and provider not in _reported:
+        _reported.add(provider)
+        logger.warning(
+            "dependency %s blocked the event loop for %.0f ms: make it `async def` or "
+            "mark it @blocking to run it in a thread",
+            _name(provider),
+            elapsed * 1000,
+        )
 
 
 def _name(function: Callable[..., Any]) -> str:

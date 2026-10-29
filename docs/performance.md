@@ -40,6 +40,22 @@ objects does.
 
 To use more than one core, run several processes: `fastgrpc3 run app:app --workers N`.
 
+## Dependencies
+
+Each `Depends(...)` adds a little to a call. Small message, 16 concurrent calls, one server
+core, requests per second (`benches/results/2026-10-29-deps.md`):
+
+| | on the event loop | in a thread (`@blocking`) |
+|-|------:|------:|
+| no dependency | 4,528 | 4,747 |
+| 1 `def` provider | 4,321 (−5 %) | 3,762 (−21 %) |
+| 10 `def` providers | 4,218 (−7 %) | 1,977 (−58 %) |
+| 10 `def` generators | 3,672 (−19 %) | 1,481 (−69 %) |
+
+`async def` providers cost the same as `def` ones on the loop. Running a provider in a
+thread is the price of not blocking the other calls: keep it for providers that do
+blocking I/O.
+
 ## Memory
 
 Streaming 200,000 medium messages each way keeps the server's resident memory flat.

@@ -25,6 +25,7 @@ app.add_service(service)
 | `lifespan` | `None` | `async` context manager factory run around the server |
 | `lock_file`, `unlocked` | `None`, `"assign"` | `proto.lock` and what to do with unlocked fields (see [Contracts](contracts.md#field-numbers)) |
 | `server_interceptors` | `()` | native `grpc.aio` interceptors |
+| `sync_providers` | `"loop"` | where `def` dependency providers run: `"loop"` or `"threadpool"` (see [Dependencies](#dependencies)) |
 | `options` | `()` | raw `grpc` server options |
 
 PEM arguments take a path or the PEM bytes. With `MTLS`, clients must present a certificate
@@ -92,11 +93,16 @@ the model). An instance of exactly the response model is not validated again.
 
 ```python
 from typing import Annotated
-from fastgrpc3 import Context, Depends
+from fastgrpc3 import Context, Depends, blocking
 
 
 def settings() -> Settings:
     return Settings()
+
+
+@blocking  # synchronous driver: run in a thread
+def legacy_lookup(config: Settings = Depends(settings)) -> Legacy:
+    return Legacy.connect(config.legacy_url)
 
 
 async def database(config: Settings = Depends(settings)) -> AsyncIterator[Database]:
@@ -115,6 +121,7 @@ def current_user(ctx: Context) -> str:
 async def GetOrder(
     req: GetOrderRequest,
     db: Database = Depends(database),
+    legacy: Legacy = Depends(legacy_lookup),
     user: Annotated[str, Depends(current_user)] = "",
 ) -> Order: ...
 ```
@@ -127,6 +134,12 @@ async def GetOrder(
   stream, and when the call fails or is cancelled. On failure, the exception is raised at
   their `yield`; a provider that catches it (to roll back, say) cannot swallow it: the call
   still fails, and the providers around it see the exception too.
+- A `def` provider runs on the event loop: cheap, but while it blocks (a synchronous
+  database driver, `requests`), no other call of the process moves. Mark it `@blocking` to
+  run it in a thread instead, or set `GrpcApp(sync_providers="threadpool")` for every `def`
+  provider, with `@non_blocking` to keep the quick ones on the loop. A thread round trip
+  costs tens of µs per provider (see [Performance](performance.md)); a `def` provider that
+  holds the loop more than 10 ms is reported once in the log.
 - `app.dependency_overrides[provider] = replacement` swaps a provider; overrides are read
   when the app starts.
 - The dependency graph is resolved at start: a cycle or a parameter nothing can fill fails

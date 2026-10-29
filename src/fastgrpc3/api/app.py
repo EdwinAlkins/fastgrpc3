@@ -15,7 +15,7 @@ import logging
 import signal
 from collections.abc import AsyncIterator, Callable, Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import grpc
 import grpc.aio
@@ -66,6 +66,7 @@ class GrpcApp:
         lifespan: Lifespan | None = None,
         lock_file: str | Path | None = None,
         unlocked: Unlocked = "assign",
+        sync_providers: Literal["loop", "threadpool"] = "loop",
         options: Sequence[tuple[str, int | str]] = (),
     ) -> None:
         self.title = title
@@ -81,6 +82,10 @@ class GrpcApp:
         self.lifespan = lifespan
         self.lock_file = None if lock_file is None else Path(lock_file)
         self.unlocked: Unlocked = unlocked
+        if sync_providers not in ("loop", "threadpool"):
+            raise ValueError('sync_providers must be "loop" or "threadpool"')
+        #: Where `def` dependency providers without `@blocking` / `@non_blocking` run.
+        self.sync_providers = sync_providers
         #: Extra raw `grpc` server options, e.g. `("grpc.so_reuseport", 1)`.
         self.options = list(options)
         self.health: HealthService | None = None
@@ -290,7 +295,11 @@ class GrpcApp:
                     handler,
                     schema.codec(handler.method.request),
                     schema.codec(handler.method.response),
-                    plan_dependencies(handler.dependencies, self.dependency_overrides),
+                    plan_dependencies(
+                        handler.dependencies,
+                        self.dependency_overrides,
+                        threadpool=self.sync_providers == "threadpool",
+                    ),
                     pipeline,
                 )
                 handlers[name] = invoker.rpc_method_handler()

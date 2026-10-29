@@ -56,4 +56,13 @@ fastgrpc3 export TARGET [-o proto] [--lock proto.lock]
 Write the `.proto` files of the contract, as the server compiles them. Fields without a
 number in the models or the lock are an error: run `lock` first.
 
+## `openapi`
+
+```text
+fastgrpc3 openapi TARGET [-o FILE]
+```
+
+Write the OpenAPI document of a `GrpcApp`'s RPCs (what `app.enable_docs` serves at
+`/openapi.json`) to `FILE`, or to the standard output.
+
 All commands exit 1 with an `error: ...` line on a contract or compilation error.

@@ -1,6 +1,6 @@
 """The bookstore server.
 
-uv run python -m bookstore.app                       # one process, port 50051
+uv run python -m bookstore.app                       # port 50051, docs on :8080/docs
 uv run fastgrpc3 run bookstore.app:app --workers 2   # two processes sharing the port
 """
 
@@ -25,7 +25,7 @@ app.enable_reflection()  # grpc.reflection: grpcurl list / describe / call
 
 @app.middleware
 async def log_calls(ctx: Context, call_next: CallNext) -> Any:
-    """Log every call with its duration (for streams: until the iterator is returned)."""
+    """Log every call with its duration (for a server stream: until its last message)."""
     started = time.perf_counter()
     try:
         return await call_next()
@@ -51,4 +51,7 @@ def out_of_stock(error: Exception) -> GrpcError:
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+    # Swagger UI on http://127.0.0.1:8080/docs; "Try it out" calls the RPCs through a
+    # JSON -> gRPC gateway, forwarding the x-user header (development only).
+    app.enable_docs(gateway=True, metadata=["x-user"])
     asyncio.run(app.run())

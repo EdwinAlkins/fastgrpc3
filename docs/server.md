@@ -231,6 +231,44 @@ server); `Check` of an unknown service answers `NOT_FOUND`. Reflection serves th
 descriptor compiled at startup, so `grpcurl list` / `describe` / calls show exactly what
 runs.
 
+## Interactive docs
+
+```python
+app.enable_docs(gateway=True, metadata=["x-user"])  # pip install 'fastgrpc3[docs]'
+```
+
+With the server, `enable_docs` serves on its own HTTP port (`127.0.0.1:8080` by default,
+`host=` and `port=` to change it; `grpc.aio` speaks only gRPC):
+
+- `/docs`: Swagger UI, one operation per RPC (`POST /<package>.<Service>/<Method>`), with
+  the JSON Schema of the request and response models: constraints, defaults, descriptions,
+  enum names;
+- `/openapi.json`: the OpenAPI 3.1 document, generated from the services and models
+  (`fastgrpc3 openapi app:app` writes it without starting anything).
+
+`gateway=True` makes "Try it out" work: the JSON body is validated by the request model,
+sent to the server over a gRPC channel of its own, so hooks, middlewares, dependencies and
+exception handlers apply as for any client, and the response comes back as JSON. The
+headers listed in `metadata` are forwarded as gRPC metadata. Streams are NDJSON, one JSON
+object per line, both ways (client and bidirectional streams are sent as a batch). A
+failed call answers a `Status` object with the HTTP status of its gRPC code:
+
+```json
+{"code": 5, "status": "NOT_FOUND", "message": "no book 0000000000",
+ "details": [{"@type": "type.googleapis.com/google.rpc.ErrorInfo", "reason": "BOOK_NOT_FOUND"}]}
+```
+
+In a response stream, an error after the first message arrives as a last line
+`{"error": {...}}`. `INVALID_ARGUMENT` → 400, `UNAUTHENTICATED` → 401, `PERMISSION_DENIED` →
+403, `NOT_FOUND` → 404, `ALREADY_EXISTS` → 409, `RESOURCE_EXHAUSTED` → 429, `INTERNAL` → 500,
+`UNAVAILABLE` → 503 (as grpc-gateway maps them).
+
+The gateway is a proxy to every RPC: it is off by default (the page then only documents)
+and is meant for development, or behind authentication. With TLS, pass `gateway_tls=TLS(ca=...)`
+for its connection to the server. The docs serve one port, so they refuse
+`fastgrpc3 run --workers N`. Swagger UI's files come from a CDN; `swagger_ui_url=` points to
+your own copy.
+
 ## Running
 
 ```python

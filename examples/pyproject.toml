@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "A bookstore gRPC service and its client, built with fastgrpc3"
 requires-python = ">=3.12"
 dependencies = [
-    "fastgrpc3",
+    "fastgrpc3[docs]",
 ]
 
 [dependency-groups]

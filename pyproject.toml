@@ -31,6 +31,11 @@ dependencies = [
 [project.scripts]
 fastgrpc3 = "fastgrpc3.cli:main"
 
+[project.optional-dependencies]
+docs = [
+    "uvicorn>=0.30",
+]
+
 [dependency-groups]
 bench = [
     "fastgrpc2==0.5.0",
@@ -42,6 +47,7 @@ dev = [
     "pytest-asyncio>=1.4",
     "ruff>=0.17",
     "types-grpcio>=1.85.0.20261028",
+    "uvicorn>=0.30",
 ]
 
 [build-system]

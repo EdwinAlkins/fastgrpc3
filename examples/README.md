@@ -92,6 +92,33 @@ call raises `GrpcError`, whose `detail(ErrorInfo)` gives the standard error deta
 `127.0.0.1` and a free port; `app.dependency_overrides[get_store]` gives each test a
 fresh store.
 
+## Interactive docs
+
+`python -m bookstore.app` also serves Swagger UI on <http://127.0.0.1:8080/docs>
+(`app.enable_docs(gateway=True, metadata=["x-user"])` in `app.py`): every RPC with its
+request and response models, constraints and descriptions, generated from the code.
+"Try it out" sends JSON through a gateway that calls the real gRPC service, so hooks,
+middlewares and errors apply:
+
+- `GetBook` with `{"isbn": "9782070360024"}`, then with an unknown ISBN: `404`, and the
+  `ErrorInfo` detail in the `Status` body;
+- `CreateBook` without the `x-user` header: `403 PERMISSION_DENIED`; with `x-user: admin`:
+  the new book;
+- `ListBooks` with `{"genre": 2}`: the essays, one JSON object per line (NDJSON);
+- `ImportBooks` and `AdjustStock` take NDJSON too, one request per line.
+
+The same calls without a browser:
+
+```bash
+curl -X POST localhost:8080/bookstore.v1.Bookstore/GetBook -d '{"isbn": "9782070360024"}'
+curl -X POST localhost:8080/bookstore.v1.Bookstore/CreateBook -H 'x-user: admin' \
+     -d '{"book": {"isbn": "9782070368228", "title": "La Peste"}}'
+uv run fastgrpc3 openapi bookstore.app:app -o openapi.json   # the OpenAPI document
+```
+
+The gateway is a proxy to every RPC: it is off by default, listens on 127.0.0.1, and is
+meant for development.
+
 ## Other ways to look at it
 
 ```bash

@@ -82,6 +82,8 @@ Python 3.12 or later (tested on 3.12, 3.13 and 3.14). The dependencies are `grpc
 - Rich errors with the standard `google.rpc` details (`ErrorInfo`, `BadRequest`…).
 - Deadline propagation from a call to the calls its handler makes.
 - Health checking (`grpc.health.v1`) and server reflection (`grpcurl`), built in.
+- Interactive docs: Swagger UI generated from the models, with a JSON gateway to try
+  the RPCs (`fastgrpc3[docs]`).
 - `TLS`, `MTLS` or `Insecure`, always explicit; no credentials over an insecure channel.
 - `fastgrpc3 run --workers N` to serve on several processes.
 - `TestClient` to test a service against a real local server.

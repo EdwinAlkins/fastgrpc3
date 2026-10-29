@@ -37,6 +37,8 @@ def serve(
         return 0
     if app.address.rpartition(":")[2] == "0":
         raise ValueError("several workers need a fixed port, not :0")
+    if app.docs is not None:
+        raise ValueError("enable_docs serves one HTTP port: run the docs with a single worker")
     context = multiprocessing.get_context("spawn")
     processes = [
         context.Process(

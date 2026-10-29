@@ -2,12 +2,14 @@
 
 - `generate`: `.proto` files -> Python models, services and descriptor (proto first).
 - `run`: serve an app, optionally in several worker processes.
+- `openapi`: the OpenAPI document of an app's RPCs (what `app.enable_docs` serves).
 - `export`, `lock`, `check`: code-first contracts. TARGET is `module:attribute`, naming a
   `SchemaRegistry` or an object with a `schema_registry` attribute (the application).
 """
 
 import argparse
 import importlib
+import json
 import sys
 import tomllib
 from collections.abc import Sequence
@@ -16,6 +18,7 @@ from typing import Any
 
 from fastgrpc3.api.app import GrpcApp
 from fastgrpc3.codegen.generate import CodegenError, check, generate, write
+from fastgrpc3.ops.openapi import openapi
 from fastgrpc3.runtime.workers import serve
 from fastgrpc3.schema.lock import Lock, LockError
 from fastgrpc3.schema.registry import SchemaError, SchemaRegistry
@@ -71,6 +74,21 @@ def _load(target: str) -> object:
         return getattr(module, attribute)
     except AttributeError as e:
         raise CliError(f"{module_name} has no attribute {attribute!r}") from e
+
+
+def _openapi(args: argparse.Namespace) -> int:
+    app = load_app(args.target)
+    if app.docs is not None:
+        document = app.docs.openapi()
+    else:
+        document = openapi(app.services, title=app.title)
+    text = json.dumps(document, indent=2) + "\n"
+    if args.output is None:
+        sys.stdout.write(text)
+    else:
+        Path(args.output).write_text(text)
+        print(f"wrote {args.output}")
+    return 0
 
 
 def _run(args: argparse.Namespace) -> int:
@@ -190,6 +208,12 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--workers", type=int, default=1, help="processes (default: 1)")
     run.add_argument("--grace", type=float, default=5.0, help="seconds to finish calls on stop")
     run.set_defaults(command=_run)
+
+    openapi_help = "write the OpenAPI document of an app's RPCs"
+    openapi_parser = commands.add_parser("openapi", help=openapi_help, description=openapi_help)
+    openapi_parser.add_argument("target", metavar="TARGET", help="module:attribute of a GrpcApp")
+    openapi_parser.add_argument("-o", "--output", help="file (default: standard output)")
+    openapi_parser.set_defaults(command=_openapi)
 
     export = command("export", _export, "write the .proto files of the contract")
     export.add_argument("-o", "--output", default="proto", help="directory (default: %(default)s)")

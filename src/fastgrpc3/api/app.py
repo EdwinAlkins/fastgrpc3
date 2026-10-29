@@ -15,7 +15,7 @@ import logging
 import signal
 from collections.abc import AsyncIterator, Callable, Sequence
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import grpc
 import grpc.aio
@@ -32,13 +32,23 @@ from fastgrpc3.api.config import (
 )
 from fastgrpc3.api.deps import plan_dependencies
 from fastgrpc3.api.errors import registered_details
-from fastgrpc3.api.security import Insecure, Security, check_security, server_credentials
+from fastgrpc3.api.security import (
+    MTLS,
+    TLS,
+    Insecure,
+    Security,
+    check_security,
+    server_credentials,
+)
 from fastgrpc3.api.service import GrpcService
 from fastgrpc3.ops.health import HealthService, ServingStatus
 from fastgrpc3.ops.reflection import reflection_services
 from fastgrpc3.runtime.dispatch import ExceptionHandler, Hook, Invoker, Middleware, Pipeline
 from fastgrpc3.schema import Lock, Schema, SchemaRegistry
 from fastgrpc3.schema.lock import Unlocked
+
+if TYPE_CHECKING:
+    from fastgrpc3.ops.docs import DocsServer
 
 __all__ = ["GrpcApp"]
 
@@ -92,6 +102,8 @@ class GrpcApp:
         #: Extra raw `grpc` server options, e.g. `("grpc.so_reuseport", 1)`.
         self.options = list(options)
         self.health: HealthService | None = None
+        #: The interactive docs, if `enable_docs` was called.
+        self.docs: DocsServer | None = None
         self._reflection = False
         #: `{provider: replacement}`, read when the server starts.
         self.dependency_overrides: dict[Callable[..., Any], Callable[..., Any]] = {}
@@ -166,6 +178,46 @@ class GrpcApp:
             self.add_service(self.health.service)
         return self.health
 
+    def enable_docs(
+        self,
+        *,
+        host: str = "127.0.0.1",
+        port: int = 8080,
+        gateway: bool = False,
+        metadata: Sequence[str] = (),
+        gateway_tls: TLS | MTLS | None = None,
+        timeout: float = 30.0,
+        version: str = "1.0.0",
+        swagger_ui_url: str | None = None,
+    ) -> "DocsServer":
+        """Serve Swagger UI (`/docs`) and the OpenAPI of the services (`/openapi.json`) on
+        their own HTTP port, with the server. Needs `fastgrpc3[docs]`.
+
+        `gateway=True` lets "Try it out" call the RPCs: JSON in, the real gRPC call, JSON
+        out; `metadata` are the headers forwarded as gRPC metadata (`x-user`...). It is a
+        proxy to every RPC: keep it for development, or behind authentication. With TLS,
+        `gateway_tls` is how the gateway connects to the app (`TLS(ca=...)`).
+        """
+        self._check_not_started()
+        try:
+            from fastgrpc3.ops.docs import SWAGGER_UI_URL, DocsServer, DocsSettings
+        except ImportError as e:  # uvicorn is optional
+            raise RuntimeError("interactive docs need: pip install 'fastgrpc3[docs]'") from e
+        if gateway and gateway_tls is None and not isinstance(self.tls, Insecure):
+            raise ValueError("a gateway to a TLS server needs gateway_tls=TLS(ca=...)")
+        settings = DocsSettings(
+            host=host,
+            port=port,
+            gateway=gateway,
+            metadata=tuple(key.lower() for key in metadata),
+            gateway_tls=gateway_tls,
+            timeout=timeout,
+            version=version,
+            swagger_ui_url=swagger_ui_url or SWAGGER_UI_URL,
+        )
+        self.docs = DocsServer(self, settings)
+        return self.docs
+
     def enable_reflection(self) -> None:
         """Serve gRPC server reflection (v1 and v1alpha), for `grpcurl` and similar tools."""
         self._check_not_started()
@@ -214,6 +266,12 @@ class GrpcApp:
             raise
         self._server = server
         self.bound_port = port
+        if self.docs is not None:
+            try:
+                await self.docs.start()
+            except BaseException:
+                await self.stop(0)
+                raise
         if self.health is not None:
             for service in self.services:
                 self.health.set_serving(service.full_name)
@@ -226,6 +284,8 @@ class GrpcApp:
         if server is not None and self.health is not None:
             self.health.set_all(ServingStatus.NOT_SERVING)
         try:
+            if server is not None and self.docs is not None:
+                await self.docs.stop()
             if server is not None:
                 await server.stop(grace)
         finally:

@@ -16,6 +16,8 @@ over plain `grpc.aio` with generated stubs, validation included (`benches/result
   Python objects, without any JSON step.
 - **Standard gRPC.** Real protobuf on the wire, standard error details, health checking and
   server reflection, so clients in any language can talk to it.
+- **Interactive docs.** Swagger UI generated from the models, with a JSON gateway to try the
+  RPCs from the browser (`app.enable_docs()`, extra `fastgrpc3[docs]`).
 
 Requires Python 3.12 or later (tested on 3.12, 3.13 and 3.14).
 
@@ -64,6 +66,7 @@ app = GrpcApp(address="[::]:50051", tls=Insecure())  # or TLS(cert=..., key=...)
 app.add_service(service)
 app.enable_health()  # grpc.health.v1: Check, Watch, List (grpc-health-probe, Kubernetes)
 app.enable_reflection()  # grpc.reflection v1 and v1alpha (grpcurl list / describe / call)
+app.enable_docs(gateway=True)  # Swagger UI on 127.0.0.1:8080/docs (fastgrpc3[docs])
 
 if __name__ == "__main__":
     asyncio.run(app.run())  # stops cleanly on SIGINT / SIGTERM

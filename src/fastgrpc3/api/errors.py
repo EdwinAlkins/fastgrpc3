@@ -34,6 +34,7 @@ __all__ = [
     "RetryInfo",
     "StatusCode",
     "decode_details",
+    "detail_type_url",
     "encode_details",
     "register_detail",
     "registered_details",
@@ -90,6 +91,13 @@ def register_detail[M: type[BaseModel]](model: M) -> M:
 def registered_details() -> list[type[BaseModel]]:
     """The detail models clients can decode (standard ones first)."""
     return list(_registered.values())
+
+
+def detail_type_url(detail: BaseModel) -> str:
+    """The `google.protobuf.Any` type URL of a detail (`type.googleapis.com/<full name>`)."""
+    if isinstance(detail, AnyMessage):
+        return detail.type_url
+    return TYPE_URL_PREFIX + _codec(type(detail)).full_name
 
 
 def encode_details(code: StatusCode, message: str, details: Iterable[BaseModel]) -> bytes:

@@ -31,7 +31,7 @@ async def log_calls(ctx: Context, call_next: CallNext) -> Any:
         return await call_next()
     finally:
         elapsed = (time.perf_counter() - started) * 1000
-        logger.info("%s from %s in %.1f ms", ctx.method, ctx.peer(), elapsed)
+        logger.info("%s from %s in %.2f ms", ctx.method, ctx.peer(), elapsed)
 
 
 @app.exception_handler(BookNotFound)

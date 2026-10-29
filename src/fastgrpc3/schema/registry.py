@@ -12,7 +12,13 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from fastgrpc3.schema.annotations import FieldSpec, TypeRef, classify_field, model_doc
+from fastgrpc3.schema.annotations import (
+    STANDARD_MESSAGES,
+    FieldSpec,
+    TypeRef,
+    classify_field,
+    model_doc,
+)
 from fastgrpc3.schema.lock import Change, Lock, Unlocked, assign_numbers
 
 __all__ = [
@@ -116,11 +122,27 @@ class ResolvedSchema:
             return self.enums[ref.py].full_name
         return ref.name
 
+    def parent(self, full_name: str) -> str | None:
+        """The message a message or enum is nested in (`pkg.A.B` -> `pkg.A`), if any."""
+        candidate = full_name.rpartition(".")[0]
+        names = {spec.full_name for spec in self.messages.values()}
+        return candidate if candidate in names else None
+
+    def package_of(self, full_name: str) -> str:
+        """Package of a message or enum, nested ones included."""
+        while (parent := self.parent(full_name)) is not None:
+            full_name = parent
+        return full_name.rpartition(".")[0]
+
     def packages(self) -> list[str]:
         """Packages in first-seen order: those of the services, then of the models."""
         seen = [service.package for service in self.services]
-        seen += [spec.package for spec in self.messages.values()]
-        seen += [spec.package for spec in self.enums.values()]
+        seen += [
+            self.package_of(spec.full_name)
+            for spec in self.messages.values()
+            if spec.full_name not in STANDARD_MESSAGES
+        ]
+        seen += [self.package_of(spec.full_name) for spec in self.enums.values()]
         return list(dict.fromkeys(seen))
 
 
@@ -195,19 +217,25 @@ class _Resolver:
         self.claim(full_name, model)
         model.model_rebuild()  # resolve forward references; no-op once complete
         specs = [classify_field(name, info) for name, info in model.model_fields.items()]
+        seen: set[str] = set()
         for spec in specs:
-            _check_identifier(spec.name, f"field of {full_name}")
+            _check_identifier(spec.wire_name, f"field of {full_name}")
+            if spec.wire_name in seen:
+                raise SchemaError(f"{full_name}: two fields are named {spec.wire_name!r}")
+            seen.add(spec.wire_name)
             if spec.oneof is not None:
                 _check_oneof(full_name, model, spec)
         entry, changes = assign_numbers(
             full_name,
-            [(spec.name, spec.number) for spec in specs],
+            [(spec.wire_name, spec.number) for spec in specs],
             self.previous.messages.get(full_name),
-            self.unlocked,
+            "error" if full_name in STANDARD_MESSAGES else self.unlocked,
         )
-        self.lock.messages[full_name] = entry
-        self.changes += changes
-        numbered = tuple(replace(spec, number=entry.fields[spec.name]) for spec in specs)
+        # A standard message is defined by its own file: it has no place in the lock.
+        if full_name not in STANDARD_MESSAGES:
+            self.lock.messages[full_name] = entry
+            self.changes += changes
+        numbered = tuple(replace(spec, number=entry.fields[spec.wire_name]) for spec in specs)
         # Registered before its fields, so that recursive models terminate.
         self.messages[model] = MessageSpec(
             full_name,
@@ -259,14 +287,16 @@ def _full_name(py: type, package: str) -> str:
 
 def _enum_values(cls: type[enum.Enum]) -> tuple[tuple[str, int], ...]:
     numbers: dict[str, int] | None = getattr(cls, "__proto_numbers__", None)
-    proto_names: dict[str, str] = getattr(cls, "__proto_names__", {})
-    prefix = _screaming_snake(cls.__name__) + "_"
+    # An explicit prefix (`ProtoEnum(prefix=...)`) keeps member names as written.
+    prefix: str | None = getattr(cls, "__proto_prefix__", None)
+    short_name = (getattr(cls, "__proto_name__", None) or cls.__name__).rpartition(".")[2]
+    default_prefix = _screaming_snake(short_name) + "_"
     values = []
     # `__members__` includes aliases (several names for one number).
     for name, member in cls.__members__.items():
         number = numbers[name] if numbers is not None else int(member.value)
         _check_identifier(name, f"member of {_qualname(cls)}")
-        proto_name = proto_names.get(name) or _prefixed(prefix, name)
+        proto_name = prefix + name if prefix is not None else _prefixed(default_prefix, name)
         values.append((proto_name, number))
     if not any(number == 0 for _, number in values):
         raise SchemaError(f"{_qualname(cls)}: proto3 enums need a member numbered 0")

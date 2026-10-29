@@ -39,6 +39,23 @@ WELL_KNOWN: dict[Any, tuple[str, str]] = {
 STRUCT = ("google.protobuf.Struct", "google/protobuf/struct.proto")
 VALUE = ("google.protobuf.Value", "google/protobuf/struct.proto")
 
+# Well-known types named by a `ProtoType` marker (`StringValue`, `FieldMask`…) -> file.
+MARKED_WELL_KNOWN = {
+    **{
+        f"google.protobuf.{name}Value": "google/protobuf/wrappers.proto"
+        for name in ("Double", "Float", "Int64", "UInt64", "Int32", "UInt32", "Bool")
+    },
+    "google.protobuf.StringValue": "google/protobuf/wrappers.proto",
+    "google.protobuf.BytesValue": "google/protobuf/wrappers.proto",
+    "google.protobuf.ListValue": "google/protobuf/struct.proto",
+    "google.protobuf.FieldMask": "google/protobuf/field_mask.proto",
+}
+# Standard messages modelled by a class of `fastgrpc3.types`: imported, never rendered.
+STANDARD_MESSAGES = {
+    "google.protobuf.Empty": "google/protobuf/empty.proto",
+    "google.protobuf.Any": "google/protobuf/any.proto",
+}
+
 _PLAIN_SCALARS: dict[Any, str] = {
     bool: "bool",
     int: "int64",
@@ -67,6 +84,7 @@ class TypeRef:
 class FieldSpec:
     """Proto shape of a model field.
 
+    `name` is the Python attribute; `proto_name` is set when the proto field name differs.
     `value` is the element type for `repeated`, and the value type for `map` (whose key
     scalar is `map_key`). A carrier field is a `string` holding the JSON of the value.
     """
@@ -80,6 +98,12 @@ class FieldSpec:
     oneof: str | None = None
     alias: str | None = None
     doc: str | None = None
+    proto_name: str | None = None
+
+    @property
+    def wire_name(self) -> str:
+        """The field name in the `.proto` and in the codec's dicts."""
+        return self.proto_name or self.name
 
 
 _CARRIER = TypeRef("scalar", "string")
@@ -98,6 +122,7 @@ def classify_field(name: str, info: FieldInfo) -> FieldSpec:
         "oneof": oneof,
         "alias": info.alias if info.alias != name else None,
         "doc": info.description,
+        "proto_name": marker.proto_name if marker and marker.proto_name != name else None,
     }
 
     annotation, optional = _split_optional(info.annotation)
@@ -155,6 +180,8 @@ def _singular(annotation: Any, proto_type: str | None = None) -> TypeRef | None:
     """The `TypeRef` of a non-container annotation, or `None` if it has no proto type."""
     annotation, inner_type = _unwrap(annotation)
     proto_type = inner_type or proto_type
+    if proto_type in MARKED_WELL_KNOWN:
+        return TypeRef("well_known", proto_type, import_path=MARKED_WELL_KNOWN[proto_type])
     if annotation is Any or annotation is JsonValue:
         return TypeRef("well_known", VALUE[0], import_path=VALUE[1])
     if _is_struct(annotation):

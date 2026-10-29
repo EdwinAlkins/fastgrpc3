@@ -14,16 +14,26 @@ from dataclasses import dataclass
 from typing import Annotated, Any, ClassVar
 
 from protoruf import OpenIntEnum
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 from pydantic.fields import FieldInfo
 
 __all__ = [
+    "AnyMessage",
+    "BoolValue",
+    "BytesValue",
     "Double",
+    "DoubleValue",
+    "Empty",
+    "FieldMask",
     "Fixed32",
     "Fixed64",
     "Float32",
+    "FloatValue",
     "Int32",
+    "Int32Value",
     "Int64",
+    "Int64Value",
+    "ListValue",
     "ProtoEnum",
     "ProtoField",
     "ProtoModel",
@@ -32,8 +42,11 @@ __all__ = [
     "SFixed64",
     "SInt32",
     "SInt64",
+    "StringValue",
     "UInt32",
+    "UInt32Value",
     "UInt64",
+    "UInt64Value",
     "field",
     "key",
     "proto_enum",
@@ -42,20 +55,23 @@ __all__ = [
 
 @dataclass(frozen=True, slots=True)
 class ProtoType:
-    """Proto scalar type of an `int` or `float` annotation (`"int32"`, `"fixed64"`…)."""
+    """Proto type of an annotation: a scalar (`"int32"`, `"fixed64"`…) for `int` and
+    `float`, or a well-known type (`"google.protobuf.StringValue"`…)."""
 
     name: str
 
 
 @dataclass(frozen=True, slots=True)
 class ProtoField:
-    """Field number and `oneof` group, for `Annotated[T, ProtoField(3)]`.
+    """Field number, `oneof` group and proto name, for `Annotated[T, ProtoField(3)]`.
 
-    `number=None` leaves the number to `proto.lock`.
+    `number=None` leaves the number to `proto.lock`. `proto_name` is the field name on the
+    proto side when the Python one differs (a keyword such as `from`).
     """
 
     number: int | None = None
     oneof: str | None = None
+    proto_name: str | None = None
 
 
 _INT32 = Field(ge=-(2**31), le=2**31 - 1)
@@ -76,15 +92,35 @@ SFixed64 = Annotated[int, _INT64, ProtoType("sfixed64")]
 Float32 = Annotated[float, ProtoType("float")]
 Double = Annotated[float, ProtoType("double")]
 
+# Well-known types without a Python type of their own; declare them `T | None`.
+DoubleValue = Annotated[float, ProtoType("google.protobuf.DoubleValue")]
+FloatValue = Annotated[float, ProtoType("google.protobuf.FloatValue")]
+Int64Value = Annotated[int, _INT64, ProtoType("google.protobuf.Int64Value")]
+UInt64Value = Annotated[int, _UINT64, ProtoType("google.protobuf.UInt64Value")]
+Int32Value = Annotated[int, _INT32, ProtoType("google.protobuf.Int32Value")]
+UInt32Value = Annotated[int, _UINT32, ProtoType("google.protobuf.UInt32Value")]
+BoolValue = Annotated[bool, ProtoType("google.protobuf.BoolValue")]
+StringValue = Annotated[str, ProtoType("google.protobuf.StringValue")]
+BytesValue = Annotated[bytes, ProtoType("google.protobuf.BytesValue")]
+ListValue = Annotated[list[JsonValue], ProtoType("google.protobuf.ListValue")]
+FieldMask = Annotated[list[str], ProtoType("google.protobuf.FieldMask")]
 
-def field(number: int | None = None, *, oneof: str | None = None, **kwargs: Any) -> Any:
+
+def field(
+    number: int | None = None,
+    *,
+    oneof: str | None = None,
+    proto_name: str | None = None,
+    **kwargs: Any,
+) -> Any:
     """Declare a model field with its proto number; other arguments go to `pydantic.Field`.
 
     `number=None` leaves the number to `proto.lock`. `oneof="name"` puts the field in a
-    `oneof` group; its type must then be `T | None` with a `None` default.
+    `oneof` group; its type must then be `T | None` with a `None` default. `proto_name`
+    names the field on the proto side when the Python name differs.
     """
     info: FieldInfo = Field(**kwargs)
-    info.metadata.append(ProtoField(number, oneof))
+    info.metadata.append(ProtoField(number, oneof, proto_name))
     return info
 
 
@@ -165,13 +201,20 @@ class ProtoEnum(OpenIntEnum):
 
     `proto="pkg.Name"` sets the full enum name; without it, the enum goes into the package
     of the message that uses it. Members are numbered by their value; 0 is required.
+
+    In the `.proto`, member names get the `ENUM_NAME_` prefix (`OrderStatus.PAID` ->
+    `ORDER_STATUS_PAID`); `prefix="..."` changes it, `prefix=""` keeps the names as is.
     """
 
     __proto_name__: ClassVar[str | None] = None
+    __proto_prefix__: ClassVar[str | None] = None
 
-    def __init_subclass__(cls, *, proto: str | None = None, **kwargs: Any) -> None:
+    def __init_subclass__(
+        cls, *, proto: str | None = None, prefix: str | None = None, **kwargs: Any
+    ) -> None:
         super().__init_subclass__(**kwargs)
         cls.__proto_name__ = proto
+        cls.__proto_prefix__ = prefix
 
 
 def proto_enum[E: type[enum.Enum]](**numbers: int) -> Callable[[E], E]:
@@ -199,3 +242,14 @@ def proto_enum[E: type[enum.Enum]](**numbers: int) -> Callable[[E], E]:
         return cls
 
     return decorate
+
+
+class Empty(ProtoModel, proto="google.protobuf.Empty"):
+    """`google.protobuf.Empty`: a message without fields."""
+
+
+class AnyMessage(ProtoModel, proto="google.protobuf.Any"):
+    """`google.protobuf.Any`: a packed message and the URL of its type."""
+
+    type_url: str = field(1, default="")
+    value: bytes = field(2, default=b"")

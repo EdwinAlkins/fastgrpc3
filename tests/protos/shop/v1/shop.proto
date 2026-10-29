@@ -1,0 +1,86 @@
+syntax = "proto3";
+
+package shop.v1;
+
+import "common/v1/money.proto";
+import "google/protobuf/duration.proto";
+import "google/protobuf/empty.proto";
+import "google/protobuf/field_mask.proto";
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/wrappers.proto";
+import "google/rpc/status.proto";
+import "google/type/date.proto";
+
+// Status of an order.
+enum OrderStatus {
+  ORDER_STATUS_UNSPECIFIED = 0;
+  // Paid by the customer.
+  ORDER_STATUS_PAID = 1;
+}
+
+// Values without the usual prefix keep their names.
+enum Color {
+  red = 0;
+  GREEN = 1;
+}
+
+message GetOrderRequest {
+  string order_number = 1;
+}
+
+// A customer order.
+message Order {
+  // Unique, human-readable.
+  string order_number = 1;
+  OrderStatus status = 2;
+  google.protobuf.Timestamp created_at = 3;
+  optional string note = 4;
+  repeated Line lines = 5;
+  map<string, int32> counters = 6;
+  common.v1.Money total = 7;
+  google.protobuf.StringValue coupon = 8;
+  google.protobuf.Struct meta = 9;
+  google.protobuf.Value extra = 10;
+  google.type.Date due = 11;
+  oneof payment {
+    string iban = 12;
+    Card card = 13;
+  }
+  string from = 14;
+  bytes json = 15;
+  Color color = 16;
+  repeated google.rpc.Status errors = 17;
+  google.protobuf.Duration delay = 18;
+  google.protobuf.FieldMask mask = 19;
+  float ratio = 20;
+  uint64 big = 21;
+  map<int32, Line> by_position = 22;
+  sint32 delta = 23;
+  google.protobuf.Int64Value limit = 24;
+
+  message Card {
+    string number = 1;
+    Kind kind = 2;
+
+    enum Kind {
+      KIND_UNSPECIFIED = 0;
+      KIND_VISA = 1;
+    }
+  }
+}
+
+message Line {
+  string sku = 1;
+  uint32 qty = 2;
+  Order parent = 3;
+}
+
+// Orders of the shop.
+service Orders {
+  // Get one order.
+  rpc GetOrder(GetOrderRequest) returns (Order);
+  rpc Watch(GetOrderRequest) returns (stream Order);
+  rpc Upload(stream Line) returns (Order);
+  rpc Ping(google.protobuf.Empty) returns (google.protobuf.Empty);
+}

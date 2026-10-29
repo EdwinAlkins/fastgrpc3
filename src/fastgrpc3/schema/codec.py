@@ -2,7 +2,8 @@
 
 Most models go straight through the Rust codec. A model whose tree holds a value the Rust
 codec does not know (JSON carrier, `datetime.date`, `Enum` numbered by `proto_enum`, field
-alias) takes a slower path: the codec works on dicts, converted here field by field.
+alias, proto name other than the Python one) takes a slower path: the codec works on dicts,
+converted here field by field.
 """
 
 import datetime
@@ -25,10 +26,12 @@ Convert = Callable[[Any], Any]
 
 @dataclass(frozen=True, slots=True)
 class _Plan:
-    """Fields of one message that need converting: `(name, to wire, from wire)`."""
+    """Fields of one message that need converting: `(name, to wire, from wire)`, JSON
+    carriers, and `(Python name, proto name)` of renamed fields."""
 
     converters: tuple[tuple[str, Convert, Convert], ...]
     carriers: frozenset[str]
+    renames: tuple[tuple[str, str], ...]
 
 
 _Plans = dict[type[BaseModel], _Plan]
@@ -92,6 +95,8 @@ def _to_wire(plans: _Plans, message: BaseModel) -> dict[str, Any]:
         dumped = message.model_dump(mode="json", include=set(plan.carriers))
         for name in plan.carriers:
             values[name] = json.dumps(dumped[name], separators=(",", ":"))
+    for name, wire_name in plan.renames:
+        values[wire_name] = values.pop(name)
     return values
 
 
@@ -99,6 +104,9 @@ def _from_wire(plans: _Plans, model: type[BaseModel], values: dict[str, Any]) ->
     plan = plans.get(model)
     if plan is None:
         return values
+    for name, wire_name in plan.renames:
+        if wire_name in values:
+            values[name] = values.pop(wire_name)
     for name, _, from_wire in plan.converters:
         if values.get(name) is not None:
             values[name] = from_wire(values[name])
@@ -124,7 +132,8 @@ def _build_plans(schema: ResolvedSchema) -> _Plans:
             if pair is not None:
                 converters.append((field_spec.name, *_lift(field_spec, *pair)))
         carriers = frozenset(f.name for f in spec.fields if f.carrier)
-        plans[model] = _Plan(tuple(converters), carriers)
+        renames = tuple((f.name, f.wire_name) for f in spec.fields if f.proto_name)
+        plans[model] = _Plan(tuple(converters), carriers, renames)
     return plans
 
 
@@ -133,7 +142,7 @@ def _needs_conversion(schema: ResolvedSchema) -> set[type[BaseModel]]:
     needs = {
         model
         for model, spec in schema.messages.items()
-        if any(f.carrier or _is_converted_leaf(f.value) for f in spec.fields)
+        if any(f.carrier or f.proto_name or _is_converted_leaf(f.value) for f in spec.fields)
     }
     changed = True
     while changed:  # fixed point, for recursive models

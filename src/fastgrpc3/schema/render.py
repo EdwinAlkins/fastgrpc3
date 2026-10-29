@@ -6,7 +6,7 @@ export` writes, so the exported contract never drifts from the served one.
 
 from collections.abc import Iterator
 
-from fastgrpc3.schema.annotations import FieldSpec, TypeRef
+from fastgrpc3.schema.annotations import STANDARD_MESSAGES, FieldSpec, TypeRef
 from fastgrpc3.schema.registry import (
     EnumSpec,
     MessageSpec,
@@ -49,12 +49,15 @@ def _imports(schema: ResolvedSchema, package: str) -> list[str]:
         if ref.import_path is not None:
             files.add(ref.import_path)
         elif ref.kind in ("message", "enum"):
-            other = schema.full_name(ref).rpartition(".")[0]
-            if other != package:
+            full_name = schema.full_name(ref)
+            other = schema.package_of(full_name)
+            if full_name in STANDARD_MESSAGES:
+                files.add(STANDARD_MESSAGES[full_name])
+            elif other != package:
                 files.add(package_file(other))
 
     for message in schema.messages.values():
-        if message.package == package:
+        if schema.package_of(message.full_name) == package:
             for spec in message.fields:
                 add(spec.value)
     for service in schema.services:
@@ -91,15 +94,23 @@ def _render_package(schema: ResolvedSchema, package: str, imports: list[str]) ->
         lines.append("")
         lines += [f'import "{file}";' for file in imports]
     for enum_spec in schema.enums.values():
-        if enum_spec.package == package:
+        if _top_level(schema, enum_spec.full_name, package):
             lines += ["", *_render_enum(enum_spec)]
     for message in schema.messages.values():
-        if message.package == package:
+        if _top_level(schema, message.full_name, package):
             lines += ["", *_render_message(schema, message)]
     for service in schema.services:
         if service.package == package:
             lines += ["", *_render_service(schema, service)]
     return "\n".join(lines) + "\n"
+
+
+def _top_level(schema: ResolvedSchema, full_name: str, package: str) -> bool:
+    return (
+        full_name not in STANDARD_MESSAGES
+        and schema.parent(full_name) is None
+        and schema.package_of(full_name) == package
+    )
 
 
 def _comment(doc: str | None, indent: str = "") -> list[str]:
@@ -140,6 +151,15 @@ def _render_message(schema: ResolvedSchema, message: MessageSpec) -> Iterator[st
     if message.reserved_names:
         names = ", ".join(f'"{name}"' for name in message.reserved_names)
         yield f"{INDENT}reserved {names};"
+    # Nested types, as in `message A { message B {} }`.
+    for enum_spec in schema.enums.values():
+        if schema.parent(enum_spec.full_name) == message.full_name:
+            yield ""
+            yield from (f"{INDENT}{line}".rstrip() for line in _render_enum(enum_spec))
+    for nested in schema.messages.values():
+        if schema.parent(nested.full_name) == message.full_name:
+            yield ""
+            yield from (f"{INDENT}{line}".rstrip() for line in _render_message(schema, nested))
     yield "}"
 
 
@@ -151,7 +171,7 @@ def _render_field(
     in_oneof: bool = False,
 ) -> Iterator[str]:
     yield from _comment(spec.doc, indent)
-    type_name = _type_name(schema, message.package, spec.value)
+    type_name = _type_name(schema, schema.package_of(message.full_name), spec.value)
     if spec.label == "map":
         declaration = f"map<{spec.map_key}, {type_name}>"
     elif spec.label == "repeated":
@@ -161,7 +181,7 @@ def _render_field(
     else:
         declaration = type_name
     trailer = "  // json" if spec.carrier else ""
-    yield f"{indent}{declaration} {spec.name} = {spec.number};{trailer}"
+    yield f"{indent}{declaration} {spec.wire_name} = {spec.number};{trailer}"
 
 
 def _render_service(schema: ResolvedSchema, service: ServiceDef) -> Iterator[str]:
@@ -181,8 +201,10 @@ def _type_name(schema: ResolvedSchema, package: str, ref: TypeRef) -> str:
     if ref.kind == "scalar":
         return ref.name
     full_name = schema.full_name(ref)
-    owner, _, name = full_name.rpartition(".")
-    return name if owner == package else full_name
+    if schema.package_of(full_name) == package:
+        # Relative to the package: `Order` or, for a nested type, `Order.Card`.
+        return full_name.removeprefix(f"{package}.")
+    return full_name
 
 
 def _ranges(numbers: tuple[int, ...]) -> str:

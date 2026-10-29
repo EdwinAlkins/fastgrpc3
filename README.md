@@ -49,6 +49,26 @@ Fields without an explicit number get one the first time they are locked, wherev
 declared; a removed field's number is reserved for good. Types without a proto equivalent
 (`Decimal`, `UUID`, unions…) travel as a JSON string, marked `// json` in the `.proto`.
 
+## Proto first: `.proto` -> Pydantic models
+
+```bash
+fastgrpc3 generate proto/ -o src/myapp/gen   # -I third_party/ for extra imports
+fastgrpc3 generate proto/ -o src/myapp/gen --check   # CI: fail if not up to date
+```
+
+`orders/v1/orders.proto` gives `orders/v1/orders_models.py` (one `ProtoModel` per message,
+one open `ProtoEnum` per enum) and `orders/v1/orders_service.py`; `_descriptor.py` embeds the
+compiled descriptor, so nothing is compiled at startup. Defaults can live in `pyproject.toml`:
+
+```toml
+[tool.fastgrpc3.generate]
+proto_paths = ["proto"]
+output = "src/myapp/gen"
+```
+
+Generated code passes `mypy --strict` and `ruff`. Well-known types become Python types
+(`Timestamp` -> `datetime`, `Struct` -> `dict[str, Any]`, wrappers -> `X | None`…).
+
 ## Development
 
 ```bash

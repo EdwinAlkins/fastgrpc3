@@ -20,7 +20,19 @@ from fastgrpc3.schema import (
 )
 from fastgrpc3.schema.lock import MessageLock
 from fastgrpc3.schema.render import package_file
-from fastgrpc3.types import Int32, ProtoEnum, ProtoField, ProtoModel, field, key, proto_enum
+from fastgrpc3.types import (
+    AnyMessage,
+    Empty,
+    FieldMask,
+    Int32,
+    ProtoEnum,
+    ProtoField,
+    ProtoModel,
+    StringValue,
+    field,
+    key,
+    proto_enum,
+)
 
 
 def registry_of(*methods: MethodDef, package: str = "shop.v1") -> SchemaRegistry:
@@ -291,3 +303,68 @@ def test_compiled_descriptor_matches_the_rendered_text() -> None:
     schema = Schema.from_registry(registry_of(rpc(Checkout)))
     again = protoruf.compile_protos(roots=list(schema.files), sources=schema.files)
     assert again == schema.descriptor
+
+
+def test_proto_names_enum_prefixes_and_standard_messages() -> None:
+    class Kind(ProtoEnum, prefix=""):
+        red = 0
+        GREEN = 1
+
+    class Order_Tag(ProtoEnum, proto="shop.v1.Order.Tag"):
+        UNSPECIFIED = 0
+
+    class Order_Line(ProtoModel, proto="shop.v1.Order.Line"):
+        tag: Order_Tag = field(1, default=Order_Tag.UNSPECIFIED)
+
+    class Order(ProtoModel, proto="shop.v1.Order"):
+        lines: list[Order_Line] = field(1, default_factory=list)
+
+    class Trip(ProtoModel):
+        from_: str = field(1, default="", proto_name="from")
+        kind: Kind = field(2, default=Kind.red)
+        order: Order | None = field(3, default=None)
+        coupon: StringValue | None = field(4, default=None)
+        mask: FieldMask | None = field(5, default=None)
+        nothing: Empty | None = field(6, default=None)
+        packed: list[AnyMessage] = field(7, default_factory=list)
+
+    registry = registry_of(MethodDef("Ping", Empty, Trip))
+    schema = Schema.from_registry(registry)
+    text = schema.files["shop/v1/shop.proto"]
+    assert list(schema.files) == ["shop/v1/shop.proto"]
+    for line in [
+        'import "google/protobuf/any.proto";',
+        'import "google/protobuf/empty.proto";',
+        'import "google/protobuf/field_mask.proto";',
+        'import "google/protobuf/wrappers.proto";',
+        "  string from = 1;",
+        "  google.protobuf.StringValue coupon = 4;",
+        "  repeated google.protobuf.Any packed = 7;",
+        "enum Kind {\n  red = 0;\n  GREEN = 1;\n}",
+        "  Order order = 3;",
+        "message Order {\n"
+        "  repeated Order.Line lines = 1;\n"
+        "\n"
+        "  enum Tag {\n"
+        "    TAG_UNSPECIFIED = 0;\n"
+        "  }\n"
+        "\n"
+        "  message Line {\n"
+        "    Order.Tag tag = 1;\n"
+        "  }\n"
+        "}\n",
+        "  rpc Ping(google.protobuf.Empty) returns (Trip);",
+    ]:
+        assert line in text
+    assert schema.info.message("shop.v1.Order.Line").field("tag").type_name == "shop.v1.Order.Tag"
+    assert "google.protobuf.Empty" not in schema.resolved.lock.messages
+    assert next(iter(schema.resolved.lock.messages["shop.v1.Trip"].fields)) == "from"
+
+
+def test_two_fields_with_one_proto_name() -> None:
+    class Clash(ProtoModel):
+        a: str = field(1, default="", proto_name="b")
+        b: str = field(2, default="")
+
+    with pytest.raises(SchemaError, match="two fields are named 'b'"):
+        registry_of(rpc(Clash)).build()

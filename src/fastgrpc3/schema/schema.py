@@ -8,8 +8,9 @@ from pydantic import BaseModel
 
 from fastgrpc3.schema.codec import MessageCodec
 from fastgrpc3.schema.lock import Lock, Unlocked
-from fastgrpc3.schema.registry import ResolvedSchema, SchemaRegistry
+from fastgrpc3.schema.registry import ResolvedSchema, SchemaError, SchemaRegistry
 from fastgrpc3.schema.render import render
+from fastgrpc3.schema.verify import mismatches
 
 __all__ = ["Schema"]
 
@@ -33,6 +34,22 @@ class Schema:
         files = render(resolved)
         descriptor = protoruf.compile_protos(roots=list(files), sources=files)
         return cls(resolved, files, descriptor, protoruf.Schema(descriptor))
+
+    @classmethod
+    def from_descriptor(cls, registry: SchemaRegistry, descriptor: bytes) -> "Schema":
+        """Bind models (generated ones) to a compiled descriptor, without compiling.
+
+        Raises `SchemaError` if the models no longer match the descriptor.
+        """
+        resolved = registry.build(unlocked="error")
+        info = protoruf.Schema(descriptor)
+        problems = mismatches(resolved, info)
+        if problems:
+            details = "\n  ".join(problems)
+            raise SchemaError(
+                f"the models do not match the descriptor (run `fastgrpc3 generate`):\n  {details}"
+            )
+        return cls(resolved, {}, descriptor, info)
 
     def codec[M: BaseModel](self, model: type[M]) -> MessageCodec[M]:
         """The codec of a registered model, created once."""

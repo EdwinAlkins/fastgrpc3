@@ -7,10 +7,24 @@ import uuid
 from typing import Any
 
 import pytest
+from protoruf._protoruf import NativeCodec
 from pydantic import BaseModel, Field, ValidationError
 
 from fastgrpc3.schema import MethodDef, Schema, SchemaRegistry, ServiceDef
-from fastgrpc3.types import Int32, ProtoEnum, ProtoModel, field, key, proto_enum
+from fastgrpc3.types import (
+    AnyMessage,
+    Empty,
+    FieldMask,
+    Int32,
+    Int64Value,
+    ListValue,
+    ProtoEnum,
+    ProtoModel,
+    StringValue,
+    field,
+    key,
+    proto_enum,
+)
 
 
 def schema_of(*models: type[BaseModel]) -> Schema:
@@ -220,3 +234,30 @@ def test_codec_of_an_unknown_model() -> None:
 def test_codecs_are_cached() -> None:
     schema = schema_of(Order)
     assert schema.codec(Order) is schema.codec(Order)
+
+
+def test_well_known_markers_and_proto_names() -> None:
+    class Trip(ProtoModel):
+        from_: str = field(1, default="", proto_name="from")
+        coupon: StringValue | None = field(2, default=None)
+        limit: Int64Value | None = field(3, default=None)
+        mask: FieldMask | None = field(4, default=None)
+        values: ListValue | None = field(5, default=None)
+        nothing: Empty | None = field(6, default=None)
+        packed: AnyMessage | None = field(7, default=None)
+
+    schema = schema_of(Trip)
+    codec = schema.codec(Trip)
+    message = Trip(
+        from_="Paris",
+        coupon="",
+        limit=0,
+        mask=["a.b"],
+        values=[1.0, None],
+        nothing=Empty(),
+        packed=AnyMessage(type_url="t", value=b"v"),
+    )
+    assert codec.decode(codec.encode(message)) == message
+    assert codec.decode(codec.encode(Trip())) == Trip()
+    wire = NativeCodec(schema.descriptor, "shop.v1.Trip").decode_dict(codec.encode(message))
+    assert wire["from"] == "Paris"

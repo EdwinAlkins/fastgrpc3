@@ -147,8 +147,25 @@ def test_models_module(files: dict[str, str]) -> None:
 
 
 def test_services_module(files: dict[str, str]) -> None:
-    assert files["shop/v1/shop_service.py"].endswith(
-        "from fastgrpc3 import MethodDef, ServiceDef\n"
+    text = files["shop/v1/shop_service.py"]
+    assert text.endswith(
+        "class OrdersClient(GrpcClient):\n"
+        '    """Client of shop.v1.Orders.\n'
+        "\n"
+        "    Orders of the shop.\n"
+        '    """\n'
+        "\n"
+        '    package = "shop.v1"\n'
+        '    service = "Orders"\n'
+        "\n"
+        '    get_order = GrpcClient.unary("GetOrder", _shop_v1_shop.GetOrderRequest, _shop_v1_shop.Order)\n'  # noqa: E501
+        '    watch = GrpcClient.unary_stream("Watch", _shop_v1_shop.GetOrderRequest, _shop_v1_shop.Order)\n'  # noqa: E501
+        '    upload = GrpcClient.stream_unary("Upload", _shop_v1_shop.Line, _shop_v1_shop.Order)\n'
+        '    ping = GrpcClient.unary("Ping", Empty, Empty)\n'
+    )
+    assert text[: text.index("class OrdersClient")].endswith(
+        "from fastgrpc3 import GrpcClient\n"
+        "from fastgrpc3.schema import MethodDef, ServiceDef\n"
         "from fastgrpc3.types import Empty\n"
         "\n"
         "from . import shop_models as _shop_v1_shop\n"
@@ -167,7 +184,7 @@ def test_services_module(files: dict[str, str]) -> None:
         '        MethodDef("Ping", Empty, Empty),\n'
         "    ),\n"
         '    doc="Orders of the shop.",\n'
-        ")\n"
+        ")\n\n\n"
     )
 
 
@@ -388,3 +405,49 @@ def _file_shape(view: protoruf.Schema, name: str) -> tuple[object, ...]:
         if s.file == name
     }
     return view.files[name].package, messages, enums, services
+
+
+async def test_generated_contract_served_and_called(package: tuple[str, Path]) -> None:
+    """Proto first, end to end: implement the generated contract, call it with the
+    generated client."""
+    from collections.abc import AsyncIterator
+
+    from fastgrpc3 import GrpcApp, GrpcService, Insecure
+    from fastgrpc3.testing import TestClient
+    from fastgrpc3.types import Empty
+
+    models = load(package, "shop.v1.shop_models")
+    contract = load(package, "shop.v1.shop_service")
+    Order, GetOrderRequest, Line = models.Order, models.GetOrderRequest, models.Line
+    service = GrpcService.implement(contract.Orders)
+
+    @service.unary("GetOrder")
+    async def get_order(req: GetOrderRequest) -> Order:  # type: ignore[valid-type]
+        return Order(order_number=req.order_number, from_="Paris", iban="FR76")  # type: ignore[no-any-return,attr-defined]
+
+    @service.unary_stream("Watch")
+    async def watch(req: GetOrderRequest) -> AsyncIterator[Order]:  # type: ignore[valid-type]
+        for status in (models.OrderStatus.UNSPECIFIED, models.OrderStatus.PAID):
+            yield Order(order_number=req.order_number, status=status)  # type: ignore[attr-defined]
+
+    @service.stream_unary("Upload")
+    async def upload(lines: AsyncIterator[Line]) -> Order:  # type: ignore[valid-type]
+        return Order(lines=[line async for line in lines])  # type: ignore[no-any-return]
+
+    @service.unary("Ping")
+    async def ping(req: Empty) -> Empty:
+        return Empty()
+
+    app = GrpcApp(tls=Insecure())
+    app.add_service(service)
+    async with TestClient(app) as tc:
+        orders = tc.client(contract.OrdersClient)
+        order = await orders.get_order(GetOrderRequest(order_number="A"))
+        assert (order.order_number, order.from_, order.iban) == ("A", "Paris", "FR76")
+        statuses = [o.status async for o in orders.watch(GetOrderRequest(order_number="A"))]
+        assert statuses == [models.OrderStatus.UNSPECIFIED, models.OrderStatus.PAID]
+        uploaded = await orders.upload([Line(sku="a", qty=1), Line(sku="b", qty=2)])
+        assert [line.sku for line in uploaded.lines] == ["a", "b"]
+        assert await orders.ping(Empty()) == Empty()
+    assert app.schema is not None
+    assert "shop/v1/shop.proto" in app.schema.files

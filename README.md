@@ -3,7 +3,8 @@
 A FastAPI-like gRPC framework for Python: async handlers, Pydantic models, dependency
 injection and typed clients, on top of `grpc.aio`.
 
-> **Status: early development.** Nothing is usable yet; the API below is the target.
+> **Status: early development.** Contracts, server and client work; health checking,
+> server reflection and `run --workers` are still to come. The API may change.
 
 - **Two ways to declare a contract.** Start from `.proto` files and generate the Pydantic
   models, services and clients, or write Pydantic models and get the `.proto` generated.
@@ -15,9 +16,79 @@ injection and typed clients, on top of `grpc.aio`.
 
 Requires Python 3.12 or later (tested on 3.12, 3.13 and 3.14).
 
+## Server and client
+
+```python
+import asyncio
+from collections.abc import AsyncIterator
+
+from pydantic import BaseModel
+from fastgrpc3 import Context, Depends, GrpcApp, GrpcError, GrpcService, Insecure, StatusCode
+
+
+class GetOrder(BaseModel):
+    order_number: str
+
+
+class Order(BaseModel):
+    order_number: str
+    paid: bool = False
+
+
+service = GrpcService("Orders", package="orders.v1")
+
+
+def get_repo() -> dict[str, Order]:
+    return {"A": Order(order_number="A", paid=True)}
+
+
+@service.unary()
+async def Get(req: GetOrder, ctx: Context, repo: dict[str, Order] = Depends(get_repo)) -> Order:
+    if req.order_number not in repo:
+        raise GrpcError(StatusCode.NOT_FOUND, "no such order")
+    return repo[req.order_number]
+
+
+@service.unary_stream()
+async def Watch(req: GetOrder) -> AsyncIterator[Order]:
+    yield Order(order_number=req.order_number)
+
+
+app = GrpcApp(address="[::]:50051", tls=Insecure())  # or TLS(cert=..., key=...)
+app.add_service(service)
+
+if __name__ == "__main__":
+    asyncio.run(app.run())  # stops cleanly on SIGINT / SIGTERM
+```
+
+```python
+from fastgrpc3 import Channel, GrpcClient, Insecure
+
+
+class OrdersClient(GrpcClient):
+    package = "orders.v1"
+    service = "Orders"
+    get = GrpcClient.unary("Get", GetOrder, Order)
+    watch = GrpcClient.unary_stream("Watch", GetOrder, Order)
+
+
+async def main() -> None:
+    async with Channel("localhost:50051", tls=Insecure()) as channel:
+        orders = OrdersClient(channel)
+        order = await orders.get(GetOrder(order_number="A"))
+        async for update in orders.watch(GetOrder(order_number="A")):
+            print(update)
+```
+
+Also: dependencies with sub-dependencies, per-call cache and `yield` cleanup;
+`app.add_interceptor` (pre-call hooks), `@app.middleware` (around the handler) and
+`@app.exception_handler`; rich errors with the standard `google.rpc` details (`ErrorInfo`,
+`BadRequest`…); deadline propagation to calls made from a handler; `TLS` / `MTLS` /
+`Insecure` always explicit; `fastgrpc3.testing.TestClient` for tests.
+
 ## Code first: Pydantic models -> `.proto`
 
-The contract layer exists; the server and the client do not yet.
+`fastgrpc3 lock`, `check` and `export` take an app (`myapp.main:app`) or a `SchemaRegistry`.
 
 ```python
 from pydantic import BaseModel
@@ -66,7 +137,9 @@ proto_paths = ["proto"]
 output = "src/myapp/gen"
 ```
 
-Generated code passes `mypy --strict` and `ruff`. Well-known types become Python types
+Each service module also holds the contract (`Orders`, to serve with
+`GrpcService.implement(Orders)`) and a typed client (`OrdersClient`). Generated code passes
+`mypy --strict` and `ruff`. Well-known types become Python types
 (`Timestamp` -> `datetime`, `Struct` -> `dict[str, Any]`, wrappers -> `X | None`…).
 
 ## Development

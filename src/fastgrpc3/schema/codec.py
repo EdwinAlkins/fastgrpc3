@@ -54,9 +54,11 @@ class MessageCodec[M: BaseModel]:
         naive_datetime: Literal["error", "utc"] = "error",
     ) -> None:
         self.model = model
+        #: Full proto name of the message.
+        self.full_name = schema.messages[model].full_name
         self._native = NativeCodec(
             descriptor,
-            schema.messages[model].full_name,
+            self.full_name,
             model,
             unknown_enum=unknown_enum,
             naive_datetime=naive_datetime,

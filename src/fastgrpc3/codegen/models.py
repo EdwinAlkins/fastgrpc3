@@ -8,9 +8,16 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 
 from protoruf import Schema
-from protoruf.schema import EnumInfo, FieldInfo, MessageInfo
+from protoruf.schema import EnumInfo, FieldInfo, MessageInfo, ServiceInfo
 
-from fastgrpc3.codegen.naming import class_name, enum_member_names, field_name, module_parts
+from fastgrpc3.api.client import GrpcClient
+from fastgrpc3.codegen.naming import (
+    class_name,
+    enum_member_names,
+    field_name,
+    module_parts,
+    screaming_snake,
+)
 from fastgrpc3.codegen.source import INDENT, Imports, blank_separated, call, docstring
 from fastgrpc3.schema.render import package_file
 
@@ -131,7 +138,8 @@ def models_module(index: Index, file: str) -> str:
 
 
 def services_module(index: Index, file: str) -> str:
-    """Source of `<file>_service.py`: one `ServiceDef` per service."""
+    """Source of `<file>_service.py`: per service, a `ServiceDef` (the contract, for
+    `GrpcService.implement`) and a typed `<Service>Client`."""
     module = _Module(index, file, Imports(taken=set()), import_own_models=True)
     blocks = []
     for full_name in index.schema.files[file].services:
@@ -147,8 +155,9 @@ def services_module(index: Index, file: str) -> str:
                 args.append("server_streaming=True")
             if method.comments and method.comments.text:
                 args.append(f"doc={string_literal(method.comments.text)}")
-            methods += call(module.imports.use("fastgrpc3", "MethodDef"), args, ",", INDENT * 2)
-        service_def = module.imports.use("fastgrpc3", "ServiceDef")
+            method_def = module.imports.use("fastgrpc3.schema", "MethodDef")
+            methods += call(method_def, args, ",", INDENT * 2)
+        service_def = module.imports.use("fastgrpc3.schema", "ServiceDef")
         lines = [
             f"{service.name} = {service_def}(",
             f"{INDENT}{string_literal(service.name)},",
@@ -162,7 +171,37 @@ def services_module(index: Index, file: str) -> str:
         if package_file(package) != file:
             lines.append(f"{INDENT}file={string_literal(file)},")
         blocks.append([*lines, ")"])
+        blocks.append(_client_class(module, service, package))
     return module.source(f'"""Services of {file}."""', blocks)
+
+
+_CLIENT_KINDS = {
+    (False, False): "unary",
+    (False, True): "unary_stream",
+    (True, False): "stream_unary",
+    (True, True): "stream_stream",
+}
+
+
+def _client_class(module: "_Module", service: ServiceInfo, package: str) -> list[str]:
+    client = module.imports.use("fastgrpc3", "GrpcClient")
+    lines = [f"class {service.name}Client({client}):"]
+    text = service.comments.text if service.comments and service.comments.text else None
+    lines += docstring(f"Client of {service.full_name}." + (f"\n\n{text}" if text else ""), INDENT)
+    lines += [
+        "",
+        f"{INDENT}package = {string_literal(package)}",
+        f"{INDENT}service = {string_literal(service.name)}",
+        "",
+    ]
+    taken = set(dir(GrpcClient))
+    for method in service.methods:
+        kind = _CLIENT_KINDS[(method.client_streaming, method.server_streaming)]
+        name = field_name(screaming_snake(method.name).lower(), taken)
+        args = [string_literal(method.name), module.ref(method.input_type)]
+        args.append(module.ref(method.output_type))
+        lines += call(f"{name} = {client}.{kind}", args, indent=INDENT)
+    return lines
 
 
 def string_literal(text: str) -> str:

@@ -129,3 +129,30 @@ def test_generate_needs_inputs(workdir: Path, capsys: pytest.CaptureFixture[str]
     assert "give .proto directories" in capsys.readouterr().err
     assert main(["generate", str(PROTOS)]) == 1
     assert "give -o DIRECTORY" in capsys.readouterr().err
+
+
+APP = """
+from pydantic import BaseModel
+from fastgrpc3 import GrpcApp, GrpcService, Insecure
+
+class Ping(BaseModel):
+    n: int = 0
+
+service = GrpcService("Pinger", package="ping.v1")
+
+@service.unary()
+async def Ping_(req: Ping) -> Ping:
+    return req
+
+app = GrpcApp(tls=Insecure())
+app.add_service(service)
+"""
+
+
+def test_export_reads_an_application(workdir: Path) -> None:
+    (workdir / "pingapp.py").write_text(APP, encoding="utf-8")
+    assert main(["export", "pingapp:app", "-o", "out"]) == 1  # numbers not locked yet
+    assert main(["lock", "pingapp:app"]) == 0
+    assert main(["export", "pingapp:app", "-o", "out"]) == 0
+    text = (workdir / "out/ping/v1/ping.proto").read_text(encoding="utf-8")
+    assert "  rpc Ping_(Ping) returns (Ping);\n" in text

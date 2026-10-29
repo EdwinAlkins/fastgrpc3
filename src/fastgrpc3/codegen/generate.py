@@ -28,9 +28,16 @@ class CodegenError(ValueError):
     """`.proto` input the generator does not handle (proto2, unknown types…)."""
 
 
-def generate(proto_paths: Sequence[Path], include: Sequence[Path] = ()) -> dict[str, str]:
-    """Generated files (relative POSIX path -> source) for `.proto` files or directories."""
-    roots, include_paths = _collect(proto_paths)
+def generate(
+    proto_paths: Sequence[Path], include: Sequence[Path] = (), roots: Sequence[str] = ()
+) -> dict[str, str]:
+    """Generated files (relative POSIX path -> source) for `.proto` files or directories.
+
+    `roots` adds import names resolved from `include` or from the standard protos embedded
+    in protoruf (`"google/rpc/status.proto"`).
+    """
+    found, include_paths = _collect(proto_paths)
+    roots = list(dict.fromkeys([*found, *roots]))
     if not roots:
         raise CodegenError("no .proto file found")
     paths = [*include_paths, *include]

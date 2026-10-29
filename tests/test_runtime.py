@@ -266,6 +266,37 @@ async def test_middlewares_wrap_a_whole_server_stream() -> None:
         assert events == ["in", "sent 0", "error late"]
 
 
+async def test_requests_and_responses_without_validation() -> None:
+    class Positive(BaseModel):
+        n: int = Field(default=1, ge=1)
+
+    class PositiveClient(GrpcClient):
+        package = "calc.v1"
+        service = "Checked"
+        echo = GrpcClient.unary("Echo", Positive, Positive)
+
+    service = GrpcService("Checked", package="calc.v1")
+
+    @service.unary()
+    async def Echo(req: Positive) -> Positive:
+        return Positive.model_construct(n=req.n - 10)  # sent as is: an exact Positive
+
+    for validate in (True, False):
+        app = GrpcApp(tls=Insecure(), validate_requests=validate)
+        app.add_service(service)
+        async with TestClient(app) as tc:
+            trusting = PositiveClient(tc.channel, validate_responses=False)
+            if validate:
+                with pytest.raises(GrpcError) as raised:
+                    await trusting.echo(Positive.model_construct(n=-1))
+                assert raised.value.code == StatusCode.INVALID_ARGUMENT
+                with pytest.raises(GrpcError) as raised:
+                    await tc.client(PositiveClient).echo(Positive(n=5))
+                assert raised.value.message == "invalid response payload"
+            else:
+                assert (await trusting.echo(Positive.model_construct(n=-1))).n == -11
+
+
 async def test_lifespan_wraps_the_server() -> None:
     events: list[str] = []
 

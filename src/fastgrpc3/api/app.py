@@ -67,6 +67,7 @@ class GrpcApp:
         lock_file: str | Path | None = None,
         unlocked: Unlocked = "assign",
         sync_providers: Literal["loop", "threadpool"] = "loop",
+        validate_requests: bool = True,
         options: Sequence[tuple[str, int | str]] = (),
     ) -> None:
         self.title = title
@@ -86,6 +87,8 @@ class GrpcApp:
             raise ValueError('sync_providers must be "loop" or "threadpool"')
         #: Where `def` dependency providers without `@blocking` / `@non_blocking` run.
         self.sync_providers = sync_providers
+        #: False: requests are built without Pydantic validation (trusted clients only).
+        self.validate_requests = validate_requests
         #: Extra raw `grpc` server options, e.g. `("grpc.so_reuseport", 1)`.
         self.options = list(options)
         self.health: HealthService | None = None
@@ -293,7 +296,7 @@ class GrpcApp:
                 invoker = Invoker(
                     f"/{service.full_name}/{name}",
                     handler,
-                    schema.codec(handler.method.request),
+                    schema.codec(handler.method.request, validate=self.validate_requests),
                     schema.codec(handler.method.response),
                     plan_dependencies(
                         handler.dependencies,

@@ -3,12 +3,13 @@
 import datetime
 import decimal
 import enum
+import time
 import uuid
 from typing import Any
 
 import pytest
 from protoruf import Codec
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, create_model
 
 from fastgrpc3.schema import MethodDef, Schema, SchemaRegistry, ServiceDef
 from fastgrpc3.types import (
@@ -209,6 +210,55 @@ def test_decoding_validates_the_model() -> None:
     codec = schema_of(Strict).codec(Strict)
     with pytest.raises(ValidationError):
         codec.decode(b"")
+
+
+def test_decoding_without_validation() -> None:
+    """`validate=False`: models built as by `model_construct`, nested ones included; the
+    proto types are kept, the model's constraints are not checked."""
+
+    class Strict(BaseModel):
+        number: str = Field(min_length=1)
+        lines: list[Line] = []
+
+    schema = schema_of(Strict)
+    trusting = schema.codec(Strict, validate=False)
+    assert trusting is not schema.codec(Strict)
+    assert trusting is schema.codec(Strict, validate=False)
+    data = trusting.encode(Strict.model_construct(number="", lines=[Line(sku="a", qty=2)]))
+    decoded = trusting.decode(data)
+    assert decoded.number == "" and decoded.lines == [Line(sku="a", qty=2)]
+    assert type(decoded.lines[0]) is Line
+    with pytest.raises(ValidationError):
+        schema.codec(Strict).decode(data)
+
+
+def test_models_on_the_converted_path_are_always_validated() -> None:
+    class Priced(BaseModel):
+        price: decimal.Decimal = decimal.Decimal(0)  # a JSON carrier
+        name: str = Field(default="x", min_length=1)
+
+    codec = schema_of(Priced).codec(Priced, validate=False)
+    assert codec.decode(codec.encode(Priced(price=decimal.Decimal("2.5")))).price == 2.5
+    with pytest.raises(ValidationError):
+        codec.decode(b"")  # name "" breaks min_length
+
+
+def test_the_schema_is_built_in_linear_time() -> None:
+    """Rendering and creating codecs used to be quadratic in the number of messages."""
+
+    def build(count: int) -> float:
+        models = [
+            create_model(f"M{i}", **{f"f{j}": (int, 0) for j in range(5)})  # type: ignore[call-overload]
+            for i in range(count)
+        ]
+        started = time.perf_counter()
+        schema = schema_of(*models)
+        for model in models:
+            schema.codec(model)
+        return time.perf_counter() - started
+
+    build(20)  # warm up
+    assert build(400) < 10 * build(100)  # linear: about 4x; quadratic was about 16x
 
 
 def test_oneof_round_trip() -> None:

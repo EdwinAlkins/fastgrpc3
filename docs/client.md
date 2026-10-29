@@ -92,6 +92,11 @@ and bytes).
 The client decodes responses itself: a response that does not decode or validate raises
 `GrpcError(INTERNAL, "invalid response payload")`, instead of silently giving `None`.
 
+For a server you trust, `OrdersClient(channel, validate_responses=False)` builds the
+response models without Pydantic validation: the values keep their proto types, but the
+models' constraints and validators do not run. Large responses decode about 45 % faster
+(see [Performance](performance.md)); models with a JSON-carried field are still validated.
+
 ## Deadlines
 
 A call made while serving a request inherits what is left of that request's deadline: the

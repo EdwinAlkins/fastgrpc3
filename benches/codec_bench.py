@@ -4,8 +4,8 @@
 
 Compared, for each message size:
 
-- fastgrpc3: `MessageCodec` (decode validates), and protoruf's `Codec` in construct mode
-  (no validation) to show what an unvalidated path costs;
+- fastgrpc3: `MessageCodec`, decoding with Pydantic validation (the default) and without
+  (`validate=False`, what `validate_requests=False` / `validate_responses=False` use);
 - fastgrpc2 0.5.0: its own codec (protobuf messages built field by field in Python);
 - upb (`google.protobuf`): raw parse / serialize, and with the conversion to and from the
   Pydantic model (`MessageToDict` + `model_validate`), i.e. "generated code + Pydantic".
@@ -23,7 +23,6 @@ from contract import SIZES, make_models, sample
 from environment import environment, markdown_table
 from fastgrpc2.core import codec as fastgrpc2_codec
 from google.protobuf import descriptor_pb2, descriptor_pool, json_format, message_factory
-from protoruf import Codec
 
 from fastgrpc3 import Schema, SchemaRegistry
 
@@ -50,12 +49,12 @@ def fastgrpc3_rows() -> dict[str, dict[str, float]]:
         codec = schema.codec(model)
         data = codec.encode(message)
         assert codec.decode(data) == message
-        construct = Codec(schema.descriptor, codec.full_name, model, mode="construct")
+        trusting = schema.codec(model, validate=False)
         rows[size] = {
             "bytes": len(data),
             "fastgrpc3 encode": per_call(partial(codec.encode, message)),
             "fastgrpc3 decode": per_call(partial(codec.decode, data)),
-            "fastgrpc3 decode (construct)": per_call(partial(construct.decode, data)),
+            "fastgrpc3 decode (no validation)": per_call(partial(trusting.decode, data)),
         }
         rows[size].update(upb_rows(schema.descriptor, codec.full_name, model, message, data))
     return rows

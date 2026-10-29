@@ -25,7 +25,7 @@ from e2e_servers import is_mode
 from environment import environment, markdown_table
 
 HERE = Path(__file__).parent
-MODES = ("raw", "fastgrpc2", "fastgrpc3")
+MODES = ("raw", "fastgrpc2", "fastgrpc3", "fastgrpc3-novalidate")
 SERVER_CPU = "0"
 CLIENT_CPUS = "2-7"
 

@@ -20,6 +20,6 @@ their reading live in `results/<date>.md`; compare runs from the same machine on
 |------|------|
 | `contract.py` | the small, medium (20 fields, nested) and large (1,000 lines) messages |
 | `codec_bench.py` | fastgrpc3 codec vs fastgrpc2 vs upb (raw, and with Pydantic) |
-| `e2e_servers.py` | echo servers: `raw` (`grpc.aio` + upb), `fastgrpc2`, `fastgrpc3`, `fastgrpc3-deps-N-KIND` (N dependencies) |
+| `e2e_servers.py` | echo servers: `raw` (`grpc.aio` + upb), `fastgrpc2`, `fastgrpc3`, `fastgrpc3-novalidate`, `fastgrpc3-deps-N-KIND` (N dependencies) |
 | `e2e_bench.py` | runs each server pinned to one CPU and `ghz` on the others |
 | `stream_bench.py` | 200,000 messages each way, server RSS sampled along the stream |

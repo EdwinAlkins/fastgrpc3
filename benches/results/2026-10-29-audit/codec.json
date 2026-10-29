@@ -1,0 +1,56 @@
+{
+  "environment": {
+    "python": "3.14.3",
+    "platform": "Linux-7.0.0-38-generic-x86_64-with-glibc2.39",
+    "cpu": "AMD Ryzen 7 PRO 7840U w/ Radeon 780M Graphics",
+    "packages": {
+      "fastgrpc3": "0.1.0.dev0",
+      "protoruf": "0.5.1",
+      "grpcio": "1.85.0",
+      "pydantic": "2.14.1",
+      "protobuf": "7.36.2",
+      "fastgrpc2": "0.5.0"
+    }
+  },
+  "rows": {
+    "small": {
+      "bytes": 9,
+      "fastgrpc3 encode": 0.12054166899997654,
+      "fastgrpc3 decode": 0.5157995420013322,
+      "fastgrpc3 decode (no validation)": 0.26109949000056076,
+      "upb encode (raw)": 0.06523528639991127,
+      "upb decode (raw)": 0.1349549575002129,
+      "upb + Pydantic encode": 4.098183120004251,
+      "upb + Pydantic decode": 2.3708739499943476,
+      "fastgrpc2 bytes": 9,
+      "fastgrpc2 encode": 0.6592176539998036,
+      "fastgrpc2 decode": 1.4429782299976068
+    },
+    "medium": {
+      "bytes": 287,
+      "fastgrpc3 encode": 1.0481882100020812,
+      "fastgrpc3 decode": 5.009452320009586,
+      "fastgrpc3 decode (no validation)": 2.7414036200025294,
+      "upb encode (raw)": 0.3233053129997643,
+      "upb decode (raw)": 0.4885506459995667,
+      "upb + Pydantic encode": 57.70402920006745,
+      "upb + Pydantic decode": 24.141564599995036,
+      "fastgrpc2 bytes": 288,
+      "fastgrpc2 encode": 9.208414660006383,
+      "fastgrpc2 decode": 16.131773250026527
+    },
+    "large": {
+      "bytes": 23705,
+      "fastgrpc3 encode": 79.97572860003856,
+      "fastgrpc3 decode": 479.66575200007355,
+      "fastgrpc3 decode (no validation)": 266.08808299988596,
+      "upb encode (raw)": 19.271527149976464,
+      "upb decode (raw)": 22.771019199990405,
+      "upb + Pydantic encode": 4721.44377999939,
+      "upb + Pydantic decode": 1984.1752349975652,
+      "fastgrpc2 bytes": 24000,
+      "fastgrpc2 encode": 873.2556079994538,
+      "fastgrpc2 decode": 1696.3524399989183
+    }
+  }
+}

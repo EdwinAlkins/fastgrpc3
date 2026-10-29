@@ -4,8 +4,9 @@
     python benches/e2e_servers.py MODE --prepare DIR   # write the protoset and request bytes
 
 Modes: `raw` (`grpc.aio` with `google.protobuf` (upb) messages, i.e. generated stubs, no
-framework), `fastgrpc2`, `fastgrpc3`, and `fastgrpc3-deps-N-KIND`: fastgrpc3 with N trivial
-dependencies per handler, each a `sync` or `async` function or a `gen` / `agen` generator.
+framework), `fastgrpc2`, `fastgrpc3`, `fastgrpc3-novalidate` (`validate_requests=False`),
+and `fastgrpc3-deps-N-KIND`: fastgrpc3 with N trivial dependencies per handler, each a
+`sync` or `async` function or a `gen` / `agen` generator.
 Every server echoes the request of `bench.v1.Bench/{Small,Medium,Large}`.
 """
 
@@ -41,7 +42,8 @@ DEPS_MODE = re.compile(r"fastgrpc3-deps-(\d+)-(sync|async|gen|agen)")
 
 
 def is_mode(mode: str) -> bool:
-    return mode in ("raw", "fastgrpc2", "fastgrpc3") or DEPS_MODE.fullmatch(mode) is not None
+    simple = ("raw", "fastgrpc2", "fastgrpc3", "fastgrpc3-novalidate")
+    return mode in simple or DEPS_MODE.fullmatch(mode) is not None
 
 
 def make_provider(kind: str) -> Callable[..., Any]:
@@ -98,7 +100,8 @@ def fastgrpc3_app(port: int, mode: str = "fastgrpc3") -> Any:
         else:
             handler = deps_handler(models.of(size), int(deps[1]), deps[2])
         service.unary(method(size))(handler)
-    app = GrpcApp(tls=Insecure(), address=f"127.0.0.1:{port}")
+    validate = mode != "fastgrpc3-novalidate"
+    app = GrpcApp(tls=Insecure(), address=f"127.0.0.1:{port}", validate_requests=validate)
     app.add_service(service)
     return app, models
 

@@ -25,6 +25,7 @@ app.add_service(service)
 | `lifespan` | `None` | `async` context manager factory run around the server |
 | `lock_file`, `unlocked` | `None`, `"assign"` | `proto.lock` and what to do with unlocked fields (see [Contracts](contracts.md#field-numbers)) |
 | `server_interceptors` | `()` | native `grpc.aio` interceptors |
+| `validate_requests` | `True` | `False` builds requests without Pydantic validation: proto types are kept, the models' constraints and validators do not run; trusted clients only |
 | `sync_providers` | `"loop"` | where `def` dependency providers run: `"loop"` or `"threadpool"` (see [Dependencies](#dependencies)) |
 | `options` | `()` | raw `grpc` server options |
 

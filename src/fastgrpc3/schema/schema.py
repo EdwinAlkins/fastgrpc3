@@ -6,7 +6,7 @@ from typing import Any
 import protoruf
 from pydantic import BaseModel
 
-from fastgrpc3.schema.codec import MessageCodec
+from fastgrpc3.schema.codec import CodecTables, MessageCodec
 from fastgrpc3.schema.lock import Lock, Unlocked
 from fastgrpc3.schema.registry import ResolvedSchema, SchemaError, SchemaRegistry
 from fastgrpc3.schema.render import render
@@ -23,7 +23,10 @@ class Schema:
     files: dict[str, str]
     descriptor: bytes
     info: protoruf.Schema
-    _codecs: dict[type[BaseModel], MessageCodec[Any]] = field(default_factory=dict, repr=False)
+    _codecs: dict[tuple[type[BaseModel], bool], MessageCodec[Any]] = field(
+        default_factory=dict, repr=False
+    )
+    _tables: CodecTables | None = field(default=None, repr=False)
 
     @classmethod
     def from_registry(
@@ -51,12 +54,17 @@ class Schema:
             )
         return cls(resolved, {}, descriptor, info)
 
-    def codec[M: BaseModel](self, model: type[M]) -> MessageCodec[M]:
-        """The codec of a registered model, created once."""
-        codec = self._codecs.get(model)
+    def codec[M: BaseModel](self, model: type[M], *, validate: bool = True) -> MessageCodec[M]:
+        """The codec of a registered model, created once (`validate=False`: decoded models
+        are built without Pydantic validation, see `MessageCodec`)."""
+        codec = self._codecs.get((model, validate))
         if codec is None:
             if model not in self.resolved.messages:
                 raise KeyError(f"{model.__qualname__} is not part of this schema")
-            codec = MessageCodec(self.descriptor, self.resolved, model)
-            self._codecs[model] = codec
+            if self._tables is None:
+                self._tables = CodecTables.of(self.resolved)
+            codec = MessageCodec(
+                self.descriptor, self.resolved, model, validate=validate, tables=self._tables
+            )
+            self._codecs[(model, validate)] = codec
         return codec

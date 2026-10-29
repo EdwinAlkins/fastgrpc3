@@ -111,6 +111,8 @@ class GrpcClient:
 
     The contract is compiled once per client class, from the method models (and from
     `lock_file`, the `proto.lock` of the server, if the models leave numbers to it).
+    `validate_responses=False` builds responses without Pydantic validation (trusted
+    servers only, see `MessageCodec`).
     """
 
     package: ClassVar[str] = DEFAULT_PACKAGE
@@ -118,8 +120,9 @@ class GrpcClient:
     lock_file: ClassVar[str | Path | None] = None
     _schema: ClassVar[Schema | None] = None
 
-    def __init__(self, channel: Channel) -> None:
+    def __init__(self, channel: Channel, *, validate_responses: bool = True) -> None:
         self.channel = channel
+        self.validate_responses = validate_responses
         self._callables: dict[str, Any] = {}
 
     @classmethod
@@ -193,7 +196,8 @@ class _Method[Req: BaseModel, Resp: BaseModel]:
             raise ValueError("credentials are refused on an insecure channel")
         options = {"timeout": _timeout(client.channel, timeout), "metadata": pairs or None}
         request_codec = schema.codec(self.method.request)
-        return multicallable, request_codec, schema.codec(self.method.response), options
+        response_codec = schema.codec(self.method.response, validate=client.validate_responses)
+        return multicallable, request_codec, response_codec, options
 
 
 class Unary[Req: BaseModel, Resp: BaseModel](_Method[Req, Resp]):

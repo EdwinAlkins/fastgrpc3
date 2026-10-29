@@ -4,6 +4,11 @@ The Rust codec handles everything the contract maps to proto, field names that d
 from the proto ones and aliases included. Only a model whose tree holds a value it does not
 know (a JSON carrier, an `Enum` numbered by `proto_enum`) takes a slower path: the codec
 works on dicts, converted here field by field.
+
+`validate=False` builds the decoded models without Pydantic validation (`model_construct`
+semantics, done in Rust): values have their proto types, but constraints and validators of
+the models do not run. For trusted traffic only; models on the slower path are still
+validated.
 """
 
 import enum
@@ -18,7 +23,7 @@ from pydantic import BaseModel
 from fastgrpc3.schema.annotations import FieldSpec, TypeRef
 from fastgrpc3.schema.registry import MessageSpec, ResolvedSchema
 
-__all__ = ["MessageCodec"]
+__all__ = ["CodecTables", "MessageCodec"]
 
 Convert = Callable[[Any], Any]
 
@@ -33,6 +38,19 @@ class _Plan:
 
 
 _Plans = dict[type[BaseModel], _Plan]
+
+
+@dataclass(frozen=True, slots=True)
+class CodecTables:
+    """What every codec of a schema shares: the fields whose Python name differs from the
+    proto one, and the conversion plans. Computed once per schema."""
+
+    field_names: dict[str, dict[int, str]]
+    plans: _Plans
+
+    @classmethod
+    def of(cls, schema: ResolvedSchema) -> "CodecTables":
+        return cls(_field_names(schema), _build_plans(schema))
 
 
 class MessageCodec[M: BaseModel]:
@@ -50,20 +68,24 @@ class MessageCodec[M: BaseModel]:
         *,
         unknown_enum: Literal["keep", "error"] = "keep",
         naive_datetime: Literal["error", "utc"] = "error",
+        validate: bool = True,
+        tables: CodecTables | None = None,
     ) -> None:
+        tables = tables or CodecTables.of(schema)
         self.model = model
         #: Full proto name of the message.
         self.full_name = schema.messages[model].full_name
+        self._plans = tables.plans
+        self._direct = all(cls not in self._plans for cls in _reachable(schema, model))
         self._native = Codec(
             descriptor,
             self.full_name,
             model,
-            field_names=_field_names(schema),
+            mode="validate" if validate or not self._direct else "construct",
+            field_names=tables.field_names,
             unknown_enum=unknown_enum,
             naive_datetime=naive_datetime,
         )
-        self._plans = _build_plans(schema)
-        self._direct = all(cls not in self._plans for cls in _reachable(schema, model))
 
     def encode(self, message: M) -> bytes:
         """Serialize a model instance to protobuf bytes."""
@@ -72,7 +94,7 @@ class MessageCodec[M: BaseModel]:
         return self._native.encode(_to_wire(self._plans, message))
 
     def decode(self, data: bytes) -> M:
-        """Parse protobuf bytes into a validated model instance."""
+        """Parse protobuf bytes into a model instance (validated unless `validate=False`)."""
         if self._direct:
             decoded: M = self._native.decode(data)
             return decoded

@@ -18,7 +18,7 @@ name become reserved, so they are never reused::
 
 import json
 import tomllib
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
@@ -137,12 +137,15 @@ def assign_numbers(
     fields: Sequence[tuple[str, int | None]],
     previous: MessageLock | None,
     unlocked: Unlocked = "assign",
+    declared: Sequence[tuple[int, int]] = (),
+    declared_names: Collection[str] = (),
 ) -> tuple[MessageLock, list[Change]]:
     """Number the fields of a message from explicit numbers and the previous lock entry.
 
-    `fields` are `(name, explicit number or None)` in declaration order. Returns the new
-    lock entry and what changed. With `unlocked="error"`, a field that would need a new
-    number raises `LockError` instead.
+    `fields` are `(name, explicit number or None)` in declaration order. `declared` and
+    `declared_names` are what the model itself reserves (inclusive ranges, names): no field
+    may use them. Returns the new lock entry and what changed. With `unlocked="error"`, a
+    field that would need a new number raises `LockError` instead.
     """
     previous = previous or MessageLock()
     reserved = set(previous.reserved)
@@ -153,6 +156,10 @@ def assign_numbers(
 
     def take(name: str, number: int, source: str) -> None:
         check_number(f"{message}.{name}", number)
+        if _in_ranges(number, declared):
+            raise LockError(f"{message}.{name}: number {number} is reserved by the model")
+        if name in declared_names:
+            raise LockError(f"{message}.{name}: the name is reserved by the model")
         if number in owners:
             raise LockError(
                 f"{message}: number {number} used by both {owners[number]} and {name} ({source})"
@@ -187,7 +194,11 @@ def assign_numbers(
     taken = {*owners, *reserved, *previous.fields.values()}
     candidate = 1
     for name in pending:
-        while candidate in taken or candidate in IMPLEMENTATION_RESERVED:
+        while (
+            candidate in taken
+            or candidate in IMPLEMENTATION_RESERVED
+            or _in_ranges(candidate, declared)
+        ):
             candidate += 1
         take(name, candidate, "new")
         taken.add(candidate)
@@ -204,3 +215,7 @@ def assign_numbers(
 
     entry = MessageLock(numbers, sorted(reserved), sorted(reserved_names))
     return entry, changes
+
+
+def _in_ranges(number: int, ranges: Sequence[tuple[int, int]]) -> bool:
+    return any(start <= number <= end for start, end in ranges)

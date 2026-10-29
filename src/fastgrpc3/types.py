@@ -47,6 +47,7 @@ __all__ = [
     "UInt32Value",
     "UInt64",
     "UInt64Value",
+    "Value",
     "field",
     "key",
     "proto_enum",
@@ -103,6 +104,9 @@ BoolValue = Annotated[bool, ProtoType("google.protobuf.BoolValue")]
 StringValue = Annotated[str, ProtoType("google.protobuf.StringValue")]
 BytesValue = Annotated[bytes, ProtoType("google.protobuf.BytesValue")]
 ListValue = Annotated[list[JsonValue], ProtoType("google.protobuf.ListValue")]
+# `JsonValue` alone is a `Value` too; the marker tells `dict[str, Value]` (a map) from
+# `dict[str, JsonValue]` (a `Struct`).
+Value = Annotated[JsonValue, ProtoType("google.protobuf.Value")]
 FieldMask = Annotated[list[str], ProtoType("google.protobuf.FieldMask")]
 
 
@@ -129,27 +133,48 @@ def key(number: int, **kwargs: Any) -> Any:
     return field(number, **kwargs)
 
 
+# Reserved field or value numbers: single numbers and inclusive `(start, end)` ranges.
+Reserved = tuple[int | tuple[int, int], ...]
+
+
 class ProtoModel(BaseModel):
     """Base class for contract messages, recommended but not required.
 
-    Class arguments: `proto="pkg.Name"` sets the full message name, `package="pkg"` only
-    the package (the class name is kept). Without them, the message goes into the package
-    of the service that uses it.
+    Class arguments:
+
+    - `proto="pkg.Name"` sets the full message name, `package="pkg"` only the package (the
+      class name is kept). Without them, the message goes into the package of the service
+      that uses it.
+    - `file="pkg/name.proto"` renders the message into that file instead of the package's.
+    - `reserved=(4, (10, 20))` and `reserved_names=("old",)` are never used by fields.
     """
 
     model_config = ConfigDict(extra="forbid", validate_by_name=True, validate_by_alias=True)
 
     __proto_name__: ClassVar[str | None] = None
     __proto_package__: ClassVar[str | None] = None
+    __proto_file__: ClassVar[str | None] = None
+    __proto_reserved__: ClassVar[Reserved] = ()
+    __proto_reserved_names__: ClassVar[tuple[str, ...]] = ()
     __proto_oneofs__: ClassVar[dict[str, tuple[str, ...]]] = {}
 
     def __init_subclass__(
-        cls, *, proto: str | None = None, package: str | None = None, **kwargs: Any
+        cls,
+        *,
+        proto: str | None = None,
+        package: str | None = None,
+        file: str | None = None,
+        reserved: Reserved = (),
+        reserved_names: tuple[str, ...] = (),
+        **kwargs: Any,
     ) -> None:
         super().__init_subclass__(**kwargs)
         # Not inherited: a subclass is another message.
         cls.__proto_name__ = proto
         cls.__proto_package__ = package
+        cls.__proto_file__ = file
+        cls.__proto_reserved__ = reserved
+        cls.__proto_reserved_names__ = reserved_names
         if _declares_oneof(vars(cls)):
             # Pydantic collects validators after `__init_subclass__`, so only the classes
             # that need it pay for the check.
@@ -204,17 +229,31 @@ class ProtoEnum(OpenIntEnum):
 
     In the `.proto`, member names get the `ENUM_NAME_` prefix (`OrderStatus.PAID` ->
     `ORDER_STATUS_PAID`); `prefix="..."` changes it, `prefix=""` keeps the names as is.
+    `file=`, `reserved=` and `reserved_names=` work as on `ProtoModel`.
     """
 
     __proto_name__: ClassVar[str | None] = None
     __proto_prefix__: ClassVar[str | None] = None
+    __proto_file__: ClassVar[str | None] = None
+    __proto_reserved__: ClassVar[Reserved] = ()
+    __proto_reserved_names__: ClassVar[tuple[str, ...]] = ()
 
     def __init_subclass__(
-        cls, *, proto: str | None = None, prefix: str | None = None, **kwargs: Any
+        cls,
+        *,
+        proto: str | None = None,
+        prefix: str | None = None,
+        file: str | None = None,
+        reserved: Reserved = (),
+        reserved_names: tuple[str, ...] = (),
+        **kwargs: Any,
     ) -> None:
         super().__init_subclass__(**kwargs)
         cls.__proto_name__ = proto
         cls.__proto_prefix__ = prefix
+        cls.__proto_file__ = file
+        cls.__proto_reserved__ = reserved
+        cls.__proto_reserved_names__ = reserved_names
 
 
 def proto_enum[E: type[enum.Enum]](**numbers: int) -> Callable[[E], E]:

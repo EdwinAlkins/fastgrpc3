@@ -8,6 +8,7 @@ services, gives every message and enum its full name, numbers the fields with
 import enum
 import re
 from dataclasses import dataclass, field, replace
+from types import ModuleType
 from typing import Any
 
 from pydantic import BaseModel
@@ -20,6 +21,7 @@ from fastgrpc3.schema.annotations import (
     model_doc,
 )
 from fastgrpc3.schema.lock import Change, Lock, Unlocked, assign_numbers
+from fastgrpc3.types import Reserved
 
 __all__ = [
     "EnumSpec",
@@ -54,12 +56,16 @@ class MethodDef:
 
 @dataclass(frozen=True, slots=True)
 class ServiceDef:
-    """A gRPC service declaration; its package is also the default one of its models."""
+    """A gRPC service declaration; its package is also the default one of its models.
+
+    `file` renders the service into that `.proto` file instead of the package's.
+    """
 
     name: str
     package: str
     methods: tuple[MethodDef, ...]
     doc: str | None = None
+    file: str | None = None
 
     @property
     def full_name(self) -> str:
@@ -74,6 +80,9 @@ class EnumSpec:
     py: type[enum.Enum]
     values: tuple[tuple[str, int], ...]
     doc: str | None = None
+    reserved: tuple[tuple[int, int], ...] = ()
+    reserved_names: tuple[str, ...] = ()
+    file: str | None = None
 
     @property
     def package(self) -> str:
@@ -86,14 +95,16 @@ class EnumSpec:
 
 @dataclass(frozen=True, slots=True)
 class MessageSpec:
-    """A resolved message: numbered fields, plus what the lock keeps reserved."""
+    """A resolved message: numbered fields, and the reserved numbers (inclusive ranges) and
+    names, from the model and from the lock."""
 
     full_name: str
     py: type[BaseModel]
     fields: tuple[FieldSpec, ...]
-    reserved: tuple[int, ...] = ()
+    reserved: tuple[tuple[int, int], ...] = ()
     reserved_names: tuple[str, ...] = ()
     doc: str | None = None
+    file: str | None = None
 
     @property
     def package(self) -> str:
@@ -134,17 +145,6 @@ class ResolvedSchema:
             full_name = parent
         return full_name.rpartition(".")[0]
 
-    def packages(self) -> list[str]:
-        """Packages in first-seen order: those of the services, then of the models."""
-        seen = [service.package for service in self.services]
-        seen += [
-            self.package_of(spec.full_name)
-            for spec in self.messages.values()
-            if spec.full_name not in STANDARD_MESSAGES
-        ]
-        seen += [self.package_of(spec.full_name) for spec in self.enums.values()]
-        return list(dict.fromkeys(seen))
-
 
 @dataclass
 class SchemaRegistry:
@@ -153,6 +153,7 @@ class SchemaRegistry:
     default_package: str = DEFAULT_PACKAGE
     services: list[ServiceDef] = field(default_factory=list)
     models: list[tuple[type[BaseModel], str | None]] = field(default_factory=list)
+    enums: list[tuple[type[enum.Enum], str | None]] = field(default_factory=list)
 
     def add_service(self, service: ServiceDef) -> None:
         """Register a service and, through its methods, the models it uses."""
@@ -163,6 +164,22 @@ class SchemaRegistry:
     def add_model(self, model: type[BaseModel], package: str | None = None) -> None:
         """Register a model no service uses (e.g. an error detail)."""
         self.models.append((model, package))
+
+    def add_enum(self, cls: type[enum.Enum], package: str | None = None) -> None:
+        """Register an enum no model uses."""
+        self.enums.append((cls, package))
+
+    def add_module(self, module: ModuleType) -> None:
+        """Register the services, models and enums a module defines (a generated one)."""
+        for value in vars(module).values():
+            if isinstance(value, ServiceDef):
+                self.add_service(value)
+            elif not isinstance(value, type) or value.__module__ != module.__name__:
+                continue
+            elif issubclass(value, BaseModel):
+                self.add_model(value)
+            elif issubclass(value, enum.Enum):
+                self.add_enum(value)
 
     def build(self, lock: Lock | None = None, unlocked: Unlocked = "assign") -> ResolvedSchema:
         """Resolve names and numbers. `unlocked="error"` refuses to invent a number."""
@@ -193,6 +210,8 @@ class _Resolver:
                 self.message(method.response, service.package)
         for model, package in registry.models:
             self.message(model, package or registry.default_package)
+        for cls, package in registry.enums:
+            self.enum(cls, package or registry.default_package)
         for name in self.previous.messages.keys() - self.lock.messages.keys():
             self.changes.append(Change("message_removed", name))
         return ResolvedSchema(
@@ -225,11 +244,15 @@ class _Resolver:
             seen.add(spec.wire_name)
             if spec.oneof is not None:
                 _check_oneof(full_name, model, spec)
+        declared = _ranges(getattr(model, "__proto_reserved__", ()))
+        declared_names: tuple[str, ...] = getattr(model, "__proto_reserved_names__", ())
         entry, changes = assign_numbers(
             full_name,
             [(spec.wire_name, spec.number) for spec in specs],
             self.previous.messages.get(full_name),
             "error" if full_name in STANDARD_MESSAGES else self.unlocked,
+            declared,
+            declared_names,
         )
         # A standard message is defined by its own file: it has no place in the lock.
         if full_name not in STANDARD_MESSAGES:
@@ -241,9 +264,10 @@ class _Resolver:
             full_name,
             model,
             numbered,
-            tuple(entry.reserved),
-            tuple(entry.reserved_names),
+            _merge_ranges([*declared, *((n, n) for n in entry.reserved)]),
+            tuple(sorted({*declared_names, *entry.reserved_names})),
             model_doc(model),
+            getattr(model, "__proto_file__", None),
         )
         child_package = full_name.rpartition(".")[0]
         for spec in numbered:
@@ -261,7 +285,15 @@ class _Resolver:
             return
         full_name = _full_name(cls, package)
         self.claim(full_name, cls)
-        self.enums[cls] = EnumSpec(full_name, cls, _enum_values(cls), model_doc(cls))
+        self.enums[cls] = EnumSpec(
+            full_name,
+            cls,
+            _enum_values(cls),
+            model_doc(cls),
+            _merge_ranges(_ranges(getattr(cls, "__proto_reserved__", ()))),
+            tuple(getattr(cls, "__proto_reserved_names__", ())),
+            getattr(cls, "__proto_file__", None),
+        )
 
     def check_same_package(self, py: Any, resolved: str, package: str) -> None:
         explicit = getattr(py, "__proto_name__", None) or getattr(py, "__proto_package__", None)
@@ -303,6 +335,22 @@ def _enum_values(cls: type[enum.Enum]) -> tuple[tuple[str, int], ...]:
     # proto3 requires the zero value first.
     zero = next(index for index, (_, number) in enumerate(values) if number == 0)
     return (values[zero], *values[:zero], *values[zero + 1 :])
+
+
+def _ranges(reserved: Reserved) -> list[tuple[int, int]]:
+    """`(4, (10, 20))` -> `[(4, 4), (10, 20)]`."""
+    return [item if isinstance(item, tuple) else (item, item) for item in reserved]
+
+
+def _merge_ranges(ranges: list[tuple[int, int]]) -> tuple[tuple[int, int], ...]:
+    """Sorted ranges, overlapping or adjacent ones merged."""
+    merged: list[tuple[int, int]] = []
+    for start, end in sorted(ranges):
+        if merged and start <= merged[-1][1] + 1:
+            merged[-1] = (merged[-1][0], max(end, merged[-1][1]))
+        else:
+            merged.append((start, end))
+    return tuple(merged)
 
 
 def _prefixed(prefix: str, name: str) -> str:

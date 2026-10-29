@@ -125,7 +125,15 @@ _STDLIB = frozenset({"typing"})
 
 
 def _from(module: str, entries: list[str]) -> str:
-    entries = sorted(entries, key=_isort_key)
+    # Like isort without `combine-as-imports`: each aliased name on its own statement.
+    plain = sorted((e for e in entries if " as " not in e), key=_isort_key)
+    aliased = sorted((e for e in entries if " as " in e), key=_isort_key)
+    statements = [_from_statement(module, plain)] if plain else []
+    statements += [_from_statement(module, [entry]) for entry in aliased]
+    return "\n".join(statements)
+
+
+def _from_statement(module: str, entries: list[str]) -> str:
     line = f"from {module} import {', '.join(entries)}"
     if len(line) <= LINE_LENGTH:
         return line

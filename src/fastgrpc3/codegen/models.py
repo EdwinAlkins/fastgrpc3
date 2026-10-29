@@ -12,6 +12,7 @@ from protoruf.schema import EnumInfo, FieldInfo, MessageInfo
 
 from fastgrpc3.codegen.naming import class_name, enum_member_names, field_name, module_parts
 from fastgrpc3.codegen.source import INDENT, Imports, blank_separated, call, docstring
+from fastgrpc3.schema.render import package_file
 
 __all__ = ["HEADER", "Index", "models_module", "services_module", "string_literal"]
 
@@ -109,9 +110,13 @@ class Index:
 def models_module(index: Index, file: str) -> str:
     """Source of `<file>_models.py`."""
     classes = index.file_classes(file)
-    module = _Module(index, file, Imports(taken={index.classes[n][1] for n in classes}))
     enums = [index.schema.enums[n] for n in classes if n in index.schema.enums]
     messages = [index.schema.messages[n] for n in classes if n in index.schema.messages]
+    # A class attribute shadows an imported name in the rest of the class body (a proto
+    # field named `field`), so imports avoid field names as well as class names.
+    taken = {index.classes[n][1] for n in classes}
+    taken |= {f.name for info in messages for f in info.fields}
+    module = _Module(index, file, Imports(taken=taken))
     blocks = [module.enum_class(info) for info in enums]
     blocks += [module.message_class(info) for info in messages]
     position = {info.full_name: i for i, info in enumerate(messages)}
@@ -154,14 +159,20 @@ def services_module(index: Index, file: str) -> str:
         ]
         if service.comments and service.comments.text:
             lines.append(f"{INDENT}doc={string_literal(service.comments.text)},")
+        if package_file(package) != file:
+            lines.append(f"{INDENT}file={string_literal(file)},")
         blocks.append([*lines, ")"])
     return module.source(f'"""Services of {file}."""', blocks)
 
 
 def string_literal(text: str) -> str:
-    """A double-quoted Python string literal."""
-    escapes = {"\\": "\\\\", '"': '\\"', "\n": "\\n", "\r": "\\r", "\t": "\\t"}
-    return '"' + "".join(escapes.get(char, char) for char in text) + '"'
+    """A Python string literal, quoted the way `ruff format` prefers.
+
+    Double quotes, unless the text holds more double quotes than single ones.
+    """
+    quote = "'" if text.count('"') > text.count("'") else '"'
+    escapes = {"\\": "\\\\", quote: f"\\{quote}", "\n": "\\n", "\r": "\\r", "\t": "\\t"}
+    return quote + "".join(escapes.get(char, char) for char in text) + quote
 
 
 @dataclass
@@ -212,6 +223,7 @@ class _Module:
         args = [self.imports.use(TYPES, "ProtoEnum"), f"proto={string_literal(info.full_name)}"]
         if prefix is not None:
             args.append(f"prefix={string_literal(prefix)}")
+        args += self.layout_args(info)
         lines = call(f"class {name}", args, ":")
         if info.comments and info.comments.text:
             lines += [*docstring(info.comments.text, INDENT), ""]
@@ -224,6 +236,7 @@ class _Module:
     def message_class(self, info: MessageInfo) -> list[str]:
         name = self.index.classes[info.full_name][1]
         args = [self.imports.use(TYPES, "ProtoModel"), f"proto={string_literal(info.full_name)}"]
+        args += self.layout_args(info)
         lines = call(f"class {name}", args, ":")
         if info.comments and info.comments.text:
             lines += docstring(info.comments.text, INDENT)
@@ -235,6 +248,21 @@ class _Module:
         if len(lines) == 1:
             lines.append(f"{INDENT}pass")
         return lines
+
+    def layout_args(self, info: MessageInfo | EnumInfo) -> list[str]:
+        """`file=` (when not the package's default file) and `reserved=` class arguments."""
+        args = []
+        package = self.index.schema.files[self.file].package
+        if info.parent is None and package_file(package) != self.file:
+            args.append(f"file={string_literal(self.file)}")
+        if info.reserved_ranges:
+            items = [str(a) if a == b else f"({a}, {b})" for a, b in info.reserved_ranges]
+            args.append(f"reserved={_tuple(items)}")
+        if info.reserved_names:
+            args.append(
+                f"reserved_names={_tuple([string_literal(n) for n in info.reserved_names])}"
+            )
+        return args
 
     def field_line(self, info: FieldInfo, name: str) -> list[str]:
         annotation, default = self.annotation(info)
@@ -252,7 +280,11 @@ class _Module:
         """Python annotation of a field, and its `default=` / `default_factory=` argument."""
         if info.is_map:
             key = self.value_type(info.map_key_kind or "", None)
-            value = self.value_type(info.map_value_kind or "", info.map_value_type_name)
+            if info.map_value_type_name == "google.protobuf.Value":
+                # `dict[str, JsonValue]` would read back as a `Struct`.
+                value = self.imports.use(TYPES, "Value")
+            else:
+                value = self.value_type(info.map_value_kind or "", info.map_value_type_name)
             return f"dict[{key}, {value}]", "default_factory=dict"
         value = self.value_type(info.kind, info.type_name)
         if info.is_list:
@@ -284,3 +316,7 @@ def _message_refs(info: MessageInfo) -> list[str]:
         if type_name and (proto_field.kind == "message" or proto_field.map_value_kind == "message"):
             refs.append(type_name)
     return refs
+
+
+def _tuple(items: list[str]) -> str:
+    return f"({items[0]},)" if len(items) == 1 else f"({', '.join(items)})"

@@ -2,11 +2,12 @@
 
 import datetime
 import enum
-from typing import Annotated
+import types
+from typing import Annotated, Any
 
 import protoruf
 import pytest
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, create_model
 
 from fastgrpc3.schema import (
     Lock,
@@ -240,7 +241,10 @@ def test_packages_importing_each_other_are_refused() -> None:
         ping: Ping | None = None
 
     Ping.model_rebuild()
-    with pytest.raises(SchemaError, match=r"packages import each other: a\.v1 -> b\.v1 -> a\.v1"):
+    with pytest.raises(
+        SchemaError,
+        match=r"files import each other: a/v1/a\.proto -> b/v1/b\.proto -> a/v1/a\.proto",
+    ):
         render(registry_of(rpc(Ping)).build())
 
 
@@ -368,3 +372,102 @@ def test_two_fields_with_one_proto_name() -> None:
 
     with pytest.raises(SchemaError, match="two fields are named 'b'"):
         registry_of(rpc(Clash)).build()
+
+
+def test_model_reserved_numbers_are_rendered_and_never_assigned() -> None:
+    class Level(ProtoEnum, reserved=(2, (5, 2**31 - 1)), reserved_names=("HIGH",)):
+        UNSPECIFIED = 0
+
+    class Item(ProtoModel, reserved=(1, (3, 4)), reserved_names=("old",)):
+        level: Level = field(default=Level.UNSPECIFIED)
+        name: str = field(default="")
+
+    lock = Lock({"shop.v1.Item": MessageLock({"gone": 9}, [9])})
+    schema = Schema.from_registry(registry_of(rpc(Item)), lock)
+    text = schema.files["shop/v1/shop.proto"]
+    # New fields skip the numbers the model reserves; the lock's reserved ones are kept.
+    assert "  Level level = 2;\n  string name = 5;\n" in text
+    assert '  reserved 1, 3 to 4, 9;\n  reserved "gone", "old";\n' in text
+    assert '  reserved 2, 5 to max;\n  reserved "HIGH";\n' in text
+
+
+@pytest.mark.parametrize(
+    ("number", "name", "message"),
+    [(3, "a", "number 3 is reserved by the model"), (7, "old", "the name is reserved")],
+)
+def test_fields_cannot_use_what_the_model_reserves(number: int, name: str, message: str) -> None:
+    class_arguments: dict[str, Any] = {"reserved": ((3, 4),), "reserved_names": ("old",)}
+    fields: dict[str, Any] = {name: (str, field(number, default=""))}
+    item = create_model("Item", __base__=ProtoModel, __cls_kwargs__=class_arguments, **fields)
+    with pytest.raises(LockError, match=message):
+        registry_of(rpc(item)).build()
+
+
+def test_elements_go_to_their_file() -> None:
+    class Inner(ProtoModel, proto="shop.v1.Outer.Inner"):
+        a: int = field(1, default=0)
+
+    class Outer(ProtoModel, proto="shop.v1.Outer", file="shop/v1/outer.proto"):
+        inner: Inner | None = field(1, default=None)
+
+    class Request(ProtoModel, proto="shop.v1.Request"):
+        outer: Outer | None = field(1, default=None)
+
+    registry = SchemaRegistry()
+    registry.add_service(
+        ServiceDef("Shop", "shop.v1", (rpc(Request),), file="shop/v1/service.proto")
+    )
+    schema = Schema.from_registry(registry)
+    assert sorted(schema.files) == [
+        "shop/v1/outer.proto",
+        "shop/v1/service.proto",
+        "shop/v1/shop.proto",
+    ]
+    assert "message Inner" in schema.files["shop/v1/outer.proto"]
+    assert 'import "shop/v1/outer.proto";' in schema.files["shop/v1/shop.proto"]
+    assert 'import "shop/v1/shop.proto";' in schema.files["shop/v1/service.proto"]
+
+
+def test_one_file_holds_one_package() -> None:
+    class A(ProtoModel, proto="a.v1.A", file="common.proto"):
+        pass
+
+    class B(ProtoModel, proto="b.v1.B", file="common.proto"):
+        a: A | None = field(1, default=None)
+
+    with pytest.raises(SchemaError, match=r"file common\.proto already holds package"):
+        render(registry_of(rpc(B)).build())
+
+
+def test_a_nested_type_lives_in_its_parents_file() -> None:
+    class Inner(ProtoModel, proto="shop.v1.Outer.Inner", file="elsewhere.proto"):
+        pass
+
+    class Outer(ProtoModel, proto="shop.v1.Outer"):
+        inner: Inner | None = field(1, default=None)
+
+    with pytest.raises(SchemaError, match="nested type lives in its parent's file"):
+        render(registry_of(rpc(Outer)).build())
+
+
+def test_add_module_registers_services_models_and_enums() -> None:
+    module = types.ModuleType("contract")
+
+    class Lonely(ProtoEnum, proto="shop.v1.Lonely"):
+        UNSPECIFIED = 0
+
+    class Detail(ProtoModel, proto="shop.v1.Detail"):
+        reason: str = field(1, default="")
+
+    for cls in (Lonely, Detail):
+        cls.__module__ = "contract"
+        setattr(module, cls.__name__, cls)
+    module.Shop = ServiceDef("Shop", "shop.v1", (rpc(Detail),))  # type: ignore[attr-defined]
+    module.imported = GetOrderRequest  # type: ignore[attr-defined]  # defined elsewhere
+
+    registry = SchemaRegistry()
+    registry.add_module(module)
+    resolved = registry.build(unlocked="error")
+    assert [s.full_name for s in resolved.messages.values()] == ["shop.v1.Detail"]
+    assert [s.full_name for s in resolved.enums.values()] == ["shop.v1.Lonely"]
+    assert [s.full_name for s in resolved.services] == ["shop.v1.Shop"]

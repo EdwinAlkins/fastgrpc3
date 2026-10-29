@@ -16,6 +16,7 @@ from protoruf._protoruf import NativeCodec
 
 from fastgrpc3 import Schema, SchemaError, SchemaRegistry
 from fastgrpc3.codegen.generate import CodegenError, check, generate, write
+from fastgrpc3.codegen.models import is_generated
 from fastgrpc3.codegen.naming import enum_member_names, field_name
 from fastgrpc3.schema.verify import mismatches
 from fastgrpc3.types import ProtoModel, field
@@ -46,20 +47,48 @@ def load(package: tuple[str, Path], module: str) -> ModuleType:
 
 
 def test_layout_follows_the_proto_files(files: dict[str, str]) -> None:
-    assert list(files) == [
-        "__init__.py",
+    modules = [name for name in files if not name.endswith("__init__.py")]
+    assert modules == [
         "_descriptor.py",
-        "common/__init__.py",
-        "common/v1/__init__.py",
         "common/v1/money_models.py",
-        "google/__init__.py",
-        "google/rpc/__init__.py",
+        "google/rpc/code_models.py",
+        "google/rpc/error_details_models.py",
         "google/rpc/status_models.py",
-        "shop/__init__.py",
-        "shop/v1/__init__.py",
+        "google/type/datetime_models.py",
+        "google/type/latlng_models.py",
+        "google/type/money_models.py",
+        "google/type/timeofday_models.py",
+        "grpc/health/v1/health_models.py",
+        "grpc/health/v1/health_service.py",
+        "grpc/reflection/v1/reflection_models.py",
+        "grpc/reflection/v1/reflection_service.py",
+        "shop/v1/catalog_models.py",
+        "shop/v1/catalog_service.py",
         "shop/v1/shop_models.py",
         "shop/v1/shop_service.py",
     ]
+    assert "grpc/reflection/__init__.py" in files
+
+
+def test_file_reserved_and_value_maps_are_generated(files: dict[str, str]) -> None:
+    catalog = files["shop/v1/catalog_models.py"]
+    assert (
+        "class Availability(\n"
+        "    ProtoEnum,\n"
+        '    proto="shop.v1.Availability",\n'
+        '    file="shop/v1/catalog.proto",\n'
+        "    reserved=(5, (8, 10)),\n"
+        '    reserved_names=("AVAILABILITY_GONE",),\n'
+        "):\n"
+    ) in catalog
+    assert "    reserved=(3, (15, 20), (100, 536870911)),\n" in catalog
+    assert "    attributes: dict[str, Value] = field(2, default_factory=dict)\n" in catalog
+    # The package's default file (shop/v1/shop.proto) needs no `file=`.
+    assert 'class Order(ProtoModel, proto="shop.v1.Order"):' in files["shop/v1/shop_models.py"]
+    # `google.rpc.BadRequest.FieldViolation` has a field named `field`.
+    details = files["google/rpc/error_details_models.py"]
+    assert "from fastgrpc3.types import field as field_\n" in details
+    assert "    field: str = field_(\n        1,\n" in details
 
 
 def test_models_module(files: dict[str, str]) -> None:
@@ -292,13 +321,70 @@ def test_enum_member_names(
     assert enum_member_names(enum, values) == expected
 
 
-def test_generated_models_render_back_to_the_same_contract(package: tuple[str, Path]) -> None:
-    """First step of criterion R2 (spike S5): fields, enums and services survive the trip
-    `.proto` -> generated models -> rendered `.proto`. File names do not yet."""
-    service = load(package, "shop.v1.shop_service")
-    original = protoruf.Schema(load(package, "_descriptor").DESCRIPTOR)
+def test_round_trip_gives_an_equivalent_descriptor(
+    files: dict[str, str], package: tuple[str, Path]
+) -> None:
+    """Criterion R2 (spike S5): `.proto` -> generated models -> rendered `.proto` gives the
+    same files, packages, messages, fields, oneofs, reserved ranges, enums and services."""
     registry = SchemaRegistry()
-    registry.add_service(service.Orders)
-
+    for name in files:
+        if name.endswith(("_models.py", "_service.py")):
+            registry.add_module(load(package, name.removesuffix(".py").replace("/", ".")))
+    original = protoruf.Schema(load(package, "_descriptor").DESCRIPTOR)
     rendered = Schema.from_registry(registry, unlocked="error")
+
     assert mismatches(rendered.resolved, original) == []
+    generated = [name for name in original.files if is_generated(name)]
+    assert len(generated) == 12
+    for name in generated:
+        assert _file_shape(rendered.info, name) == _file_shape(original, name), name
+        # Unused imports of the original are dropped, nothing else is added.
+        used = set(rendered.info.files[name].dependencies)
+        assert used <= set(original.files[name].dependencies), name
+
+
+def _file_shape(view: protoruf.Schema, name: str) -> tuple[object, ...]:
+    messages = {
+        m.full_name: (
+            m.parent,
+            m.is_map_entry,
+            [
+                (
+                    f.name,
+                    f.number,
+                    f.kind,
+                    f.type_name,
+                    f.cardinality,
+                    f.is_map,
+                    f.proto3_optional,
+                    f.oneof,
+                    f.json_name,
+                )
+                for f in m.fields
+            ],
+            [o.name for o in m.oneofs],
+            m.reserved_ranges,
+            sorted(m.reserved_names),
+        )
+        for m in view.messages.values()
+        if m.file == name
+    }
+    enums = {
+        e.full_name: (
+            e.parent,
+            {(v.name, v.number) for v in e.values},
+            e.reserved_ranges,
+            sorted(e.reserved_names),
+        )
+        for e in view.enums.values()
+        if e.file == name
+    }
+    services = {
+        s.full_name: [
+            (m.name, m.input_type, m.output_type, m.client_streaming, m.server_streaming)
+            for m in s.methods
+        ]
+        for s in view.services.values()
+        if s.file == name
+    }
+    return view.files[name].package, messages, enums, services

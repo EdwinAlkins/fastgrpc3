@@ -1,0 +1,51 @@
+syntax = "proto3";
+
+// A second file of the shop.v1 package, with what the round trip must keep.
+package shop.v1;
+
+import "google/protobuf/struct.proto";
+import "grpc/health/v1/health.proto";
+import "grpc/reflection/v1/reflection.proto";
+import "google/rpc/error_details.proto";
+import "google/rpc/code.proto";
+import "google/type/money.proto";
+import "google/type/latlng.proto";
+import "google/type/datetime.proto";
+import "google/type/timeofday.proto";
+
+enum Availability {
+  option allow_alias = true;
+  AVAILABILITY_UNSPECIFIED = 0;
+  AVAILABILITY_IN_STOCK = 1;
+  AVAILABILITY_AVAILABLE = 1;
+  reserved 5, 8 to 10;
+  reserved "AVAILABILITY_GONE";
+}
+
+message Product {
+  reserved 3, 15 to 20, 100 to max;
+  reserved "legacy", "old_price";
+
+  string sku = 1;
+  map<string, google.protobuf.Value> attributes = 2;
+  Availability availability = 4;
+  google.type.Money price = 5;
+  google.type.LatLng warehouse = 6;
+  google.type.DateTime restock = 7;
+  google.type.TimeOfDay cutoff = 8;
+  google.rpc.Code last_error = 9;
+  repeated google.rpc.BadRequest.FieldViolation violations = 10;
+
+  message Variant {
+    string name = 1;
+    Variant parent = 2;
+  }
+  repeated Variant variants = 11;
+}
+
+service Catalog {
+  rpc Check(grpc.health.v1.HealthCheckRequest) returns (grpc.health.v1.HealthCheckResponse);
+  rpc Reflect(stream grpc.reflection.v1.ServerReflectionRequest)
+      returns (stream grpc.reflection.v1.ServerReflectionResponse);
+  rpc GetProduct(Product) returns (Product);
+}

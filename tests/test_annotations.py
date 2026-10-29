@@ -10,7 +10,16 @@ import pytest
 from pydantic import BaseModel, Field, JsonValue, create_model
 
 from fastgrpc3.schema.annotations import FieldSpec, classify_field
-from fastgrpc3.types import Fixed64, Float32, Int32, ProtoType, UInt32, field, proto_enum
+from fastgrpc3.types import (
+    Fixed64,
+    Float32,
+    Int32,
+    ProtoType,
+    UInt32,
+    Value,
+    field,
+    proto_enum,
+)
 
 
 class Sub(BaseModel):
@@ -81,6 +90,7 @@ def shape(spec: FieldSpec) -> tuple[str, str]:
         (Any, ("singular", "google.protobuf.Value")),
         (JsonValue, ("singular", "google.protobuf.Value")),
         (list[Any], ("repeated", "google.protobuf.Value")),
+        (dict[str, Value], ("map", "string, google.protobuf.Value")),
     ],
 )
 def test_types_with_a_proto_equivalent(annotation: Any, expected: tuple[str, str]) -> None:

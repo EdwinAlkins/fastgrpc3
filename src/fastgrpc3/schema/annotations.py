@@ -48,6 +48,7 @@ MARKED_WELL_KNOWN = {
     "google.protobuf.StringValue": "google/protobuf/wrappers.proto",
     "google.protobuf.BytesValue": "google/protobuf/wrappers.proto",
     "google.protobuf.ListValue": "google/protobuf/struct.proto",
+    "google.protobuf.Value": "google/protobuf/struct.proto",
     "google.protobuf.FieldMask": "google/protobuf/field_mask.proto",
 }
 # Standard messages modelled by a class of `fastgrpc3.types`: imported, never rendered.
@@ -222,7 +223,9 @@ def _is_struct(annotation: Any) -> bool:
     if get_origin(annotation) is not dict:
         return False
     key_type, value_type = get_args(annotation)
-    return key_type is str and _unwrap(value_type)[0] in (Any, JsonValue)
+    value, marker = _unwrap(value_type)
+    # `dict[str, Value]` (with the marker) is a map of `Value`, not a `Struct`.
+    return key_type is str and marker is None and value in (Any, JsonValue)
 
 
 def _container(annotation: Any) -> tuple[Label, TypeRef, str | None] | None:

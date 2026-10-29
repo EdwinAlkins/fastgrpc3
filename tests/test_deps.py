@@ -1,7 +1,7 @@
 """Dependency injection: sub-dependencies, cache, cleanup, overrides, signatures."""
 
 from collections.abc import AsyncIterator, Iterator
-from typing import Annotated
+from typing import Annotated, Any
 
 import pytest
 from pydantic import BaseModel
@@ -182,6 +182,41 @@ async def test_a_dependency_cannot_swallow_the_handler_error() -> None:
         assert received == ["first"]
         assert stream.value.code == StatusCode.INTERNAL
         assert events == ["rollback: late", "commit skipped: late"]
+
+
+async def test_dependencies_are_resolved_inside_the_middlewares() -> None:
+    """A middleware that refuses a call opens no dependency."""
+    events: list[str] = []
+
+    async def resource() -> AsyncIterator[str]:
+        events.append("open")
+        yield "r"
+        events.append("close")
+
+    service = GrpcService("Deps", package="deps.v1")
+
+    @service.unary()
+    async def Get(req: Req, r: str = Depends(resource)) -> Rep:
+        events.append("handler")
+        return Rep(text=r)
+
+    app = GrpcApp(tls=Insecure())
+    app.add_service(service)
+
+    @app.middleware
+    async def guard(ctx: Context, call_next: Any) -> Any:
+        if ctx.metadata.get("x-user") is None:
+            raise GrpcError(StatusCode.PERMISSION_DENIED, "who are you")
+        events.append("allowed")
+        return await call_next()
+
+    async with TestClient(app) as tc:
+        deps = tc.client(DepsClient)
+        with pytest.raises(GrpcError, match="who are you"):
+            await deps.get(Req())
+        assert events == []
+        assert (await deps.get(Req(), metadata={"x-user": "alice"})).text == "r"
+        assert events == ["allowed", "open", "handler", "close"]
 
 
 def test_provider_parameters_must_be_filled() -> None:

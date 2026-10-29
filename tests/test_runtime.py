@@ -226,6 +226,46 @@ async def test_middlewares_wrap_the_handler_in_order() -> None:
     assert events == ["outer in", "inner /calc.v1.Calc/Double", "outer out"]
 
 
+async def test_middlewares_wrap_a_whole_server_stream() -> None:
+    """A server stream is sent inside `call_next()`: the middleware sees it end, and its
+    errors."""
+    app = GrpcApp(tls=Insecure())
+    service = GrpcService("Calc", package="calc.v1")
+    events: list[str] = []
+
+    @service.unary_stream("Count")
+    async def count(req: Req) -> AsyncIterator[Rep]:
+        for i in range(req.n):
+            events.append(f"sent {i}")
+            yield Rep(total=i)
+        if req.text == "fail":
+            raise RuntimeError("late")
+
+    app.add_service(service)
+
+    @app.middleware
+    async def watch(ctx: Context, call_next: object) -> object:
+        events.append("in")
+        try:
+            result = await call_next()  # type: ignore[operator]
+        except Exception as e:
+            events.append(f"error {e}")
+            raise
+        events.append(f"out {result}")
+        return result
+
+    async with TestClient(app) as tc:
+        calc = tc.client(CalcClient)
+        assert [r.total async for r in calc.count(Req(n=2))] == [0, 1]
+        assert events == ["in", "sent 0", "sent 1", "out None"]
+
+        events.clear()
+        with pytest.raises(GrpcError) as raised:
+            [r async for r in calc.count(Req(n=1, text="fail"))]
+        assert raised.value.code == StatusCode.INTERNAL
+        assert events == ["in", "sent 0", "error late"]
+
+
 async def test_lifespan_wraps_the_server() -> None:
     events: list[str] = []
 

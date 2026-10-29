@@ -126,7 +126,7 @@ class Invoker:
                 context = await self._prepare(grpc_context)
                 stack = contextlib.AsyncExitStack() if self.plan.needs_cleanup else _NO_STACK
                 async with stack as exit_stack:
-                    response = await self._call(context, request, exit_stack)
+                    response = await self._call(context, request, exit_stack, grpc_context)
                     return self._encode(response)
             except Exception as e:  # every failure becomes a status
                 error = await self._to_error(e)
@@ -134,25 +134,21 @@ class Invoker:
             _reset(token)
         await self._abort(grpc_context, error)
 
-    async def stream_response(
-        self, request: Any, grpc_context: ServicerContext
-    ) -> AsyncIterator[bytes]:
+    async def stream_response(self, request: Any, grpc_context: ServicerContext) -> None:
+        """A server stream: the responses are written by `_call`, inside the middlewares."""
         token = set_deadline(grpc_context.time_remaining())
-        error = None
         try:
             try:
                 context = await self._prepare(grpc_context)
                 stack = contextlib.AsyncExitStack() if self.plan.needs_cleanup else _NO_STACK
                 async with stack as exit_stack:
-                    responses = await self._call(context, request, exit_stack)
-                    async for response in responses:
-                        yield self._encode(response)
+                    await self._call(context, request, exit_stack, grpc_context)
+                return
             except Exception as e:  # every failure becomes a status
                 error = await self._to_error(e)
         finally:
             _reset(token)
-        if error is not None:
-            await self._abort(grpc_context, error)
+        await self._abort(grpc_context, error)
 
     async def _prepare(self, grpc_context: ServicerContext) -> Context | None:
         if not self.needs_context:
@@ -167,22 +163,33 @@ class Invoker:
         context: Context | None,
         request: Any,
         stack: contextlib.AsyncExitStack | None,
+        grpc_context: ServicerContext,
     ) -> Any:
-        """Decode, resolve dependencies, run the middlewares and the handler."""
+        """Decode, then run the middlewares around the dependencies and the handler.
+
+        Dependencies are resolved inside the middlewares, so a middleware that refuses a
+        call opens nothing. A server stream is written inside them too: `call_next()`
+        returns `None` once the last message is sent, so a middleware sees the whole
+        stream (its duration, its errors).
+        """
         handler = self.handler
         if handler.method.client_streaming:
             message: Any = self._decode_stream(request)
         else:
             message = self._decode(request)
-        kwargs = await self.plan.resolve(context, stack) if self.plan.nodes else {}
-        kwargs[handler.request_parameter] = message
-        if handler.context_parameter is not None:
-            kwargs[handler.context_parameter] = context
-        streaming = handler.method.server_streaming
+        plan, encode = self.plan, self._encode
 
         async def call_handler() -> Any:
-            result = handler.function(**kwargs)
-            return result if streaming else await result
+            kwargs = await plan.resolve(context, stack) if plan.nodes else {}
+            kwargs[handler.request_parameter] = message
+            if handler.context_parameter is not None:
+                kwargs[handler.context_parameter] = context
+            if not handler.method.server_streaming:
+                return await handler.function(**kwargs)
+            async with contextlib.aclosing(handler.function(**kwargs)) as responses:
+                async for response in responses:
+                    await grpc_context.write(encode(response))
+            return None
 
         call_next: CallNext = call_handler
         assert context is not None or not self.pipeline.middlewares

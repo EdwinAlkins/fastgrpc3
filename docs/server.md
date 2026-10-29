@@ -160,9 +160,11 @@ async def timing(ctx: Context, call_next: CallNext) -> Any:
 ```
 
 Hooks run in order before the request is even decoded, so a refused call costs nothing.
-Middlewares wrap the handler, the first added outermost; for a server stream,
-`call_next()` returns the async iterator of responses. Hooks and middlewares also run for
-the health and reflection services.
+Middlewares wrap the handler, the first added outermost. Dependencies are resolved inside
+them, so a middleware that refuses a call opens no resource. For a server stream, the
+whole stream is sent inside `call_next()`, which then returns `None`: a middleware sees
+how long the stream lasted and the exception that ended it, if any. Hooks and middlewares
+also run for the health and reflection services.
 
 ## Errors
 

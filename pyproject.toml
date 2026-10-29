@@ -23,7 +23,7 @@ classifiers = [
 dependencies = [
     # First release shipping CPython 3.14 wheels.
     "grpcio>=1.75.1",
-    "protoruf>=0.5.1",
+    "protoruf>=0.5.2",
     # `model_validate(..., by_name=True)` appeared in 2.11.
     "pydantic>=2.11",
 ]

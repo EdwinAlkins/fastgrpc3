@@ -311,3 +311,13 @@ async def test_run_stops_on_sigterm() -> None:
     os.kill(os.getpid(), signal.SIGTERM)
     await asyncio.wait_for(running, timeout=5)
     assert app._server is None
+
+
+async def test_a_busy_port_is_refused() -> None:
+    first = make_app()
+    first.address = "127.0.0.1:0"
+    async with first.serving():
+        second = make_app()
+        second.address = f"127.0.0.1:{first.bound_port}"
+        with pytest.raises(RuntimeError, match=r"(?i)bind"):
+            await second.start()

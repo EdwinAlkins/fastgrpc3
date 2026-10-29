@@ -31,8 +31,11 @@ from fastgrpc3.api.config import (
     channel_options,
 )
 from fastgrpc3.api.deps import plan_dependencies
+from fastgrpc3.api.errors import registered_details
 from fastgrpc3.api.security import Insecure, Security, check_security, server_credentials
 from fastgrpc3.api.service import GrpcService
+from fastgrpc3.ops.health import HealthService, ServingStatus
+from fastgrpc3.ops.reflection import reflection_services
 from fastgrpc3.runtime.dispatch import ExceptionHandler, Hook, Invoker, Middleware, Pipeline
 from fastgrpc3.schema import Lock, Schema, SchemaRegistry
 from fastgrpc3.schema.lock import Unlocked
@@ -63,6 +66,7 @@ class GrpcApp:
         lifespan: Lifespan | None = None,
         lock_file: str | Path | None = None,
         unlocked: Unlocked = "assign",
+        options: Sequence[tuple[str, int | str]] = (),
     ) -> None:
         self.title = title
         self.address = address
@@ -77,6 +81,10 @@ class GrpcApp:
         self.lifespan = lifespan
         self.lock_file = None if lock_file is None else Path(lock_file)
         self.unlocked: Unlocked = unlocked
+        #: Extra raw `grpc` server options, e.g. `("grpc.so_reuseport", 1)`.
+        self.options = list(options)
+        self.health: HealthService | None = None
+        self._reflection = False
         #: `{provider: replacement}`, read when the server starts.
         self.dependency_overrides: dict[Callable[..., Any], Callable[..., Any]] = {}
         self.services: list[GrpcService] = []
@@ -139,6 +147,23 @@ class GrpcApp:
         self._check_not_started()
         self.server_interceptors.append(interceptor)
 
+    def enable_health(self) -> HealthService:
+        """Serve `grpc.health.v1.Health`; services are SERVING once started, NOT_SERVING
+        when stopping. Returns the `HealthService` to change statuses."""
+        self._check_not_started()
+        if self.health is None:
+            self.health = HealthService()
+            self.add_service(self.health.service)
+        return self.health
+
+    def enable_reflection(self) -> None:
+        """Serve gRPC server reflection (v1 and v1alpha), for `grpcurl` and similar tools."""
+        self._check_not_started()
+        if not self._reflection:
+            self._reflection = True
+            for service in reflection_services(lambda: self.schema):
+                self.add_service(service)
+
     @property
     def schema_registry(self) -> SchemaRegistry:
         """The contract of the services and models (what `fastgrpc3 export` reads)."""
@@ -162,7 +187,7 @@ class GrpcApp:
             self.schema = self._build_schema()
             server = grpc.aio.server(
                 interceptors=self.server_interceptors,
-                options=channel_options(self.limits, self.keepalive),
+                options=self._server_options(),
                 maximum_concurrent_rpcs=self.maximum_concurrent_rpcs,
                 compression=self.compression,
             )
@@ -179,11 +204,17 @@ class GrpcApp:
             raise
         self._server = server
         self.bound_port = port
+        if self.health is not None:
+            for service in self.services:
+                self.health.set_serving(service.full_name)
+            self.health.set_serving()
         logger.info("serving %d services on %s", len(self.services), self.address)
 
     async def stop(self, grace: float | None = None) -> None:
         """Stop the server, letting running calls finish for `grace` seconds."""
         server, self._server = self._server, None
+        if server is not None and self.health is not None:
+            self.health.set_all(ServingStatus.NOT_SERVING)
         try:
             if server is not None:
                 await server.stop(grace)
@@ -220,9 +251,22 @@ class GrpcApp:
         if self._server is not None:
             raise RuntimeError("the server is already started")
 
+    def _server_options(self) -> list[tuple[str, int | str]]:
+        options = [*channel_options(self.limits, self.keepalive), *self.options]
+        if not any(name == "grpc.so_reuseport" for name, _ in options):
+            # gRPC shares ports by default: a second server on a busy port would start and
+            # take part of the traffic. Fail instead; `run --workers` turns it back on.
+            options.append(("grpc.so_reuseport", 0))
+        return options
+
     def _build_schema(self) -> Schema:
         lock = Lock.load(self.lock_file) if self.lock_file is not None else None
-        schema = Schema.from_registry(self.schema_registry, lock, self.unlocked)
+        registry = self.schema_registry
+        if self._reflection:
+            # So that reflection clients (grpcurl) can decode error details.
+            for model in registered_details():
+                registry.add_model(model)
+        schema = Schema.from_registry(registry, lock, self.unlocked)
         invented = [str(c) for c in schema.resolved.changes if c.kind == "added"]
         if invented and lock is not None:
             logger.warning(

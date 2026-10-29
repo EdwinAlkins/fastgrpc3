@@ -36,6 +36,7 @@ __all__ = [
     "decode_details",
     "encode_details",
     "register_detail",
+    "registered_details",
 ]
 
 DETAILS_TRAILER = "grpc-status-details-bin"
@@ -84,6 +85,11 @@ def register_detail[M: type[BaseModel]](model: M) -> M:
     full_name = getattr(model, "__proto_name__", None) or _codec(model).full_name
     _registered[full_name] = model
     return model
+
+
+def registered_details() -> list[type[BaseModel]]:
+    """The detail models clients can decode (standard ones first)."""
+    return list(_registered.values())
 
 
 def encode_details(code: StatusCode, message: str, details: Iterable[BaseModel]) -> bytes:

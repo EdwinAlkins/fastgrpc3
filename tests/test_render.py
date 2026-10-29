@@ -471,3 +471,11 @@ def test_add_module_registers_services_models_and_enums() -> None:
     assert [s.full_name for s in resolved.messages.values()] == ["shop.v1.Detail"]
     assert [s.full_name for s in resolved.enums.values()] == ["shop.v1.Lonely"]
     assert [s.full_name for s in resolved.services] == ["shop.v1.Shop"]
+
+
+def test_a_service_and_a_message_cannot_share_a_name() -> None:
+    class Shop(BaseModel):
+        a: int = 0
+
+    with pytest.raises(SchemaError, match=r"shop\.v1\.Shop is both"):
+        registry_of(rpc(Shop)).build()

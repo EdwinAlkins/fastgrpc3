@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from fastgrpc3 import GrpcClient
+from fastgrpc3.api.client import GrpcClient
 from fastgrpc3.schema import MethodDef, ServiceDef
 
 from . import health_models as _grpc_health_v1_health
@@ -52,7 +52,7 @@ class HealthClient(GrpcClient):
         _grpc_health_v1_health.HealthCheckRequest,
         _grpc_health_v1_health.HealthCheckResponse,
     )
-    list_ = GrpcClient.unary(
+    list = GrpcClient.unary(
         "List", _grpc_health_v1_health.HealthListRequest, _grpc_health_v1_health.HealthListResponse
     )
     watch = GrpcClient.unary_stream(

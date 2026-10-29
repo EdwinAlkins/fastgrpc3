@@ -1,6 +1,7 @@
 """`fastgrpc3` command line.
 
 - `generate`: `.proto` files -> Python models, services and descriptor (proto first).
+- `run`: serve an app, optionally in several worker processes.
 - `export`, `lock`, `check`: code-first contracts. TARGET is `module:attribute`, naming a
   `SchemaRegistry` or an object with a `schema_registry` attribute (the application).
 """
@@ -13,7 +14,9 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
+from fastgrpc3.api.app import GrpcApp
 from fastgrpc3.codegen.generate import CodegenError, check, generate, write
+from fastgrpc3.runtime.workers import serve
 from fastgrpc3.schema.lock import Lock, LockError
 from fastgrpc3.schema.registry import SchemaError, SchemaRegistry
 from fastgrpc3.schema.schema import Schema
@@ -39,6 +42,22 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 def load_registry(target: str) -> SchemaRegistry:
     """Import `module:attribute` and return its `SchemaRegistry`."""
+    value = _load(target)
+    registry = getattr(value, "schema_registry", value)
+    if not isinstance(registry, SchemaRegistry):
+        raise CliError(f"{target} is not a SchemaRegistry")
+    return registry
+
+
+def load_app(target: str) -> GrpcApp:
+    """Import `module:attribute` and return its `GrpcApp`."""
+    app = _load(target)
+    if not isinstance(app, GrpcApp):
+        raise CliError(f"{target} is not a GrpcApp")
+    return app
+
+
+def _load(target: str) -> object:
     module_name, _, attribute = target.partition(":")
     if not module_name or not attribute:
         raise CliError(f"TARGET must be module:attribute, got {target!r}")
@@ -49,13 +68,16 @@ def load_registry(target: str) -> SchemaRegistry:
     except ImportError as e:
         raise CliError(f"cannot import {module_name}: {e}") from e
     try:
-        value = getattr(module, attribute)
+        return getattr(module, attribute)
     except AttributeError as e:
         raise CliError(f"{module_name} has no attribute {attribute!r}") from e
-    registry = getattr(value, "schema_registry", value)
-    if not isinstance(registry, SchemaRegistry):
-        raise CliError(f"{target} is not a SchemaRegistry")
-    return registry
+
+
+def _run(args: argparse.Namespace) -> int:
+    try:
+        return serve(load_app, args.target, args.address, args.workers, args.grace)
+    except ValueError as e:
+        raise CliError(str(e)) from e
 
 
 def _generate(args: argparse.Namespace) -> int:
@@ -161,6 +183,13 @@ def _parser() -> argparse.ArgumentParser:
         "--check", action="store_true", help="fail if the generated files are not up to date"
     )
     generate_parser.set_defaults(command=_generate)
+
+    run = commands.add_parser("run", help="serve an app", description="serve an app")
+    run.add_argument("target", metavar="TARGET", help="module:attribute of a GrpcApp")
+    run.add_argument("--address", help="host:port to bind (default: the app's)")
+    run.add_argument("--workers", type=int, default=1, help="processes (default: 1)")
+    run.add_argument("--grace", type=float, default=5.0, help="seconds to finish calls on stop")
+    run.set_defaults(command=_run)
 
     export = command("export", _export, "write the .proto files of the contract")
     export.add_argument("-o", "--output", default="proto", help="directory (default: %(default)s)")

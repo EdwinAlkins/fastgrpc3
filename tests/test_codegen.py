@@ -164,7 +164,7 @@ def test_services_module(files: dict[str, str]) -> None:
         '    ping = GrpcClient.unary("Ping", Empty, Empty)\n'
     )
     assert text[: text.index("class OrdersClient")].endswith(
-        "from fastgrpc3 import GrpcClient\n"
+        "from fastgrpc3.api.client import GrpcClient\n"
         "from fastgrpc3.schema import MethodDef, ServiceDef\n"
         "from fastgrpc3.types import Empty\n"
         "\n"

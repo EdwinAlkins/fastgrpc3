@@ -201,6 +201,7 @@ class _Resolver:
             _check_package(service.package, f"service {service.name}")
             _check_identifier(service.name, "service")
             seen: set[str] = set()
+            self.claim(service.full_name, service)
             for method in service.methods:
                 _check_identifier(method.name, f"method of {service.full_name}")
                 if method.name in seen:
@@ -383,4 +384,6 @@ def _check_package(name: str, owner: str) -> None:
 
 
 def _qualname(py: Any) -> str:
+    if isinstance(py, ServiceDef):
+        return f"the service {py.full_name}"
     return f"{py.__module__}.{py.__qualname__}"

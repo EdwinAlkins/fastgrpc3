@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from fastgrpc3 import GrpcClient
+from fastgrpc3.api.client import GrpcClient
 from fastgrpc3.schema import MethodDef, ServiceDef
 
 from . import reflection_models as _grpc_reflection_v1_reflection

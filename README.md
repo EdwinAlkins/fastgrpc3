@@ -3,8 +3,9 @@
 A FastAPI-like gRPC framework for Python: async handlers, Pydantic models, dependency
 injection and typed clients, on top of `grpc.aio`.
 
-> **Status: early development.** Contracts, server and client work; health checking,
-> server reflection and `run --workers` are still to come. The API may change.
+> **Status: early development.** Contracts, server, client, health checking, reflection and
+> multi-process serving work; benchmarks and documentation are still to come. The API may
+> change.
 
 - **Two ways to declare a contract.** Start from `.proto` files and generate the Pydantic
   models, services and clients, or write Pydantic models and get the `.proto` generated.
@@ -56,6 +57,8 @@ async def Watch(req: GetOrder) -> AsyncIterator[Order]:
 
 app = GrpcApp(address="[::]:50051", tls=Insecure())  # or TLS(cert=..., key=...)
 app.add_service(service)
+app.enable_health()  # grpc.health.v1: Check, Watch, List (grpc-health-probe, Kubernetes)
+app.enable_reflection()  # grpc.reflection v1 and v1alpha (grpcurl list / describe / call)
 
 if __name__ == "__main__":
     asyncio.run(app.run())  # stops cleanly on SIGINT / SIGTERM
@@ -85,6 +88,13 @@ Also: dependencies with sub-dependencies, per-call cache and `yield` cleanup;
 `@app.exception_handler`; rich errors with the standard `google.rpc` details (`ErrorInfo`,
 `BadRequest`…); deadline propagation to calls made from a handler; `TLS` / `MTLS` /
 `Insecure` always explicit; `fastgrpc3.testing.TestClient` for tests.
+
+```bash
+fastgrpc3 run myapp.main:app --address [::]:50051 --workers 4   # one process per core
+```
+
+Workers share the port with `SO_REUSEPORT` (Linux); otherwise a busy port makes the server
+fail to start instead of silently sharing it.
 
 ## Code first: Pydantic models -> `.proto`
 

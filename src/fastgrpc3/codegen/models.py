@@ -15,8 +15,8 @@ from fastgrpc3.codegen.naming import (
     class_name,
     enum_member_names,
     field_name,
+    method_name,
     module_parts,
-    screaming_snake,
 )
 from fastgrpc3.codegen.source import INDENT, Imports, blank_separated, call, docstring
 from fastgrpc3.schema.render import package_file
@@ -184,7 +184,7 @@ _CLIENT_KINDS = {
 
 
 def _client_class(module: "_Module", service: ServiceInfo, package: str) -> list[str]:
-    client = module.imports.use("fastgrpc3", "GrpcClient")
+    client = module.imports.use("fastgrpc3.api.client", "GrpcClient")
     lines = [f"class {service.name}Client({client}):"]
     text = service.comments.text if service.comments and service.comments.text else None
     lines += docstring(f"Client of {service.full_name}." + (f"\n\n{text}" if text else ""), INDENT)
@@ -197,7 +197,7 @@ def _client_class(module: "_Module", service: ServiceInfo, package: str) -> list
     taken = set(dir(GrpcClient))
     for method in service.methods:
         kind = _CLIENT_KINDS[(method.client_streaming, method.server_streaming)]
-        name = field_name(screaming_snake(method.name).lower(), taken)
+        name = method_name(method.name, taken)
         args = [string_literal(method.name), module.ref(method.input_type)]
         args.append(module.ref(method.output_type))
         lines += call(f"{name} = {client}.{kind}", args, indent=INDENT)

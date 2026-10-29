@@ -14,6 +14,7 @@ __all__ = [
     "class_name",
     "enum_member_names",
     "field_name",
+    "method_name",
     "module_parts",
     "screaming_snake",
 ]
@@ -49,6 +50,16 @@ def field_name(proto_name: str, taken: set[str]) -> str:
     while keyword.iskeyword(name) or name in _RESERVED_FIELDS or name in taken:
         name += "_"
     taken.add(name)
+    return name
+
+
+def method_name(rpc_name: str, reserved: set[str]) -> str:
+    """Client attribute for an RPC: `GetOrder` -> `get_order`; `reserved` (updated) holds the
+    names already used, and those of the client base class."""
+    name = screaming_snake(rpc_name).lower()
+    while keyword.iskeyword(name) or name in reserved:
+        name += "_"
+    reserved.add(name)
     return name
 
 

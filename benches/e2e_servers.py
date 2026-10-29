@@ -1,0 +1,139 @@
+"""Echo servers for the end-to-end benchmark, one per mode, run in their own process.
+
+    python benches/e2e_servers.py MODE PORT        # serve until killed
+    python benches/e2e_servers.py MODE --prepare DIR   # write the protoset and request bytes
+
+Modes: `raw` (`grpc.aio` with `google.protobuf` (upb) messages, i.e. generated stubs, no
+framework), `fastgrpc2` and `fastgrpc3`. Every server echoes the request of
+`bench.v1.Bench/{Small,Medium,Large}`.
+"""
+
+import argparse
+import asyncio
+from pathlib import Path
+from typing import Any
+
+from contract import SIZES, make_models, sample
+
+SERVICE = "bench.v1.Bench"
+MAX_CONCURRENT_RPCS = 1024
+
+
+def method(size: str) -> str:
+    return size.capitalize()
+
+
+def echo_handler(model: Any) -> Any:
+    """An echo handler annotated with `model` (one function per model: annotations are
+    evaluated lazily, a loop variable would be read too late)."""
+
+    async def echo(request: model) -> model:  # type: ignore[valid-type]
+        return request
+
+    return echo
+
+
+def fastgrpc3_app(port: int) -> Any:
+    from fastgrpc3 import GrpcApp, GrpcService, Insecure
+
+    models = make_models()
+    service = GrpcService("Bench", package="bench.v1")
+    for size in SIZES:
+        service.unary(method(size))(echo_handler(models.of(size)))
+    app = GrpcApp(tls=Insecure(), address=f"127.0.0.1:{port}")
+    app.add_service(service)
+    return app, models
+
+
+def fastgrpc2_app(port: int) -> Any:
+    from fastgrpc2 import GrpcApp, GrpcService, Insecure
+
+    models = make_models()
+    service = GrpcService("Bench", package="bench.v1")
+    for size in SIZES:
+        service.unary(method(size))(echo_handler(models.of(size)))
+    app = GrpcApp("bench", address=f"127.0.0.1:{port}", tls=Insecure())
+    app.add_service(service)
+    return app, models
+
+
+def fastgrpc3_descriptor() -> bytes:
+    app, _ = fastgrpc3_app(0)
+    from fastgrpc3 import Schema
+
+    descriptor: bytes = Schema.from_registry(app.schema_registry).descriptor
+    return descriptor
+
+
+async def serve_raw(port: int) -> None:
+    import grpc
+    import grpc.aio
+    from google.protobuf import descriptor_pb2, descriptor_pool, message_factory
+
+    pool = descriptor_pool.DescriptorPool()
+    for file in descriptor_pb2.FileDescriptorSet.FromString(fastgrpc3_descriptor()).file:
+        pool.Add(file)
+    service = pool.FindServiceByName(SERVICE)
+
+    async def echo(request: Any, context: Any) -> Any:
+        return request
+
+    handlers = {}
+    for rpc in service.methods:
+        message_class = message_factory.GetMessageClass(rpc.input_type)
+        handlers[rpc.name] = grpc.unary_unary_rpc_method_handler(
+            echo,
+            request_deserializer=message_class.FromString,
+            response_serializer=message_class.SerializeToString,
+        )
+    server = grpc.aio.server(maximum_concurrent_rpcs=MAX_CONCURRENT_RPCS)
+    server.add_registered_method_handlers(SERVICE, handlers)
+    server.add_insecure_port(f"127.0.0.1:{port}")
+    await server.start()
+    await server.wait_for_termination()
+
+
+def prepare(mode: str, directory: Path) -> None:
+    """Write `bench.protoset` and `<size>.bin` (an encoded request) for `mode`."""
+    import protoruf
+
+    directory.mkdir(parents=True, exist_ok=True)
+    if mode == "fastgrpc2":
+        from fastgrpc2.core import codec
+
+        app, models = fastgrpc2_app(0)
+        text = app.export_proto()
+        descriptor = protoruf.compile_protos(["bench.proto"], sources={"bench.proto": text})
+        for size in SIZES:
+            data = codec.serializer(models.of(size))(sample(models, size))
+            (directory / f"{size}.bin").write_bytes(data)
+    else:
+        app, models = fastgrpc3_app(0)
+        from fastgrpc3 import Schema
+
+        schema = Schema.from_registry(app.schema_registry)
+        descriptor = schema.descriptor
+        for size in SIZES:
+            data = schema.codec(models.of(size)).encode(sample(models, size))
+            (directory / f"{size}.bin").write_bytes(data)
+    (directory / "bench.protoset").write_bytes(descriptor)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("mode", choices=("raw", "fastgrpc2", "fastgrpc3"))
+    parser.add_argument("port", type=int, nargs="?", default=0)
+    parser.add_argument("--prepare", type=Path, metavar="DIR")
+    args = parser.parse_args()
+    if args.prepare:
+        prepare(args.mode, args.prepare)
+    elif args.mode == "raw":
+        asyncio.run(serve_raw(args.port))
+    else:
+        maker = fastgrpc3_app if args.mode == "fastgrpc3" else fastgrpc2_app
+        app, _ = maker(args.port)
+        asyncio.run(app.run())
+
+
+if __name__ == "__main__":
+    main()

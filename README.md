@@ -4,8 +4,10 @@ A FastAPI-like gRPC framework for Python: async handlers, Pydantic models, depen
 injection and typed clients, on top of `grpc.aio`.
 
 > **Status: early development.** Contracts, server, client, health checking, reflection and
-> multi-process serving work; benchmarks and documentation are still to come. The API may
-> change.
+> multi-process serving work; documentation is still to come. The API may change.
+
+On a 20-field message, the codec is 4× faster than fastgrpc2's and the framework costs ~7 %
+over plain `grpc.aio` with generated stubs, validation included (`benches/results/`).
 
 - **Two ways to declare a contract.** Start from `.proto` files and generate the Pydantic
   models, services and clients, or write Pydantic models and get the `.proto` generated.

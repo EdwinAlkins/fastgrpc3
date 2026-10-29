@@ -15,6 +15,40 @@ injection and typed clients, on top of `grpc.aio`.
 
 Requires Python 3.12 or later (tested on 3.12, 3.13 and 3.14).
 
+## Code first: Pydantic models -> `.proto`
+
+The contract layer exists; the server and the client do not yet.
+
+```python
+from pydantic import BaseModel
+from fastgrpc3 import MethodDef, SchemaRegistry, ServiceDef, field
+from fastgrpc3.types import UInt32
+
+
+class GetOrder(BaseModel):
+    order_number: str
+
+
+class Order(BaseModel):
+    order_number: str
+    qty: UInt32 = 0  # proto uint32, bounds checked by Pydantic
+    note: str | None = field(5, default=None)  # explicit number
+
+
+registry = SchemaRegistry()
+registry.add_service(ServiceDef("Orders", "orders.v1", (MethodDef("Get", GetOrder, Order),)))
+```
+
+```bash
+fastgrpc3 lock myapp.contract:registry     # number new fields, write proto.lock (commit it)
+fastgrpc3 check myapp.contract:registry    # CI: fail if proto.lock is out of date
+fastgrpc3 export myapp.contract:registry -o proto/   # one .proto file per package
+```
+
+Fields without an explicit number get one the first time they are locked, wherever they are
+declared; a removed field's number is reserved for good. Types without a proto equivalent
+(`Decimal`, `UUID`, unions…) travel as a JSON string, marked `// json` in the `.proto`.
+
 ## Development
 
 ```bash

@@ -1,0 +1,103 @@
+"""`fastgrpc3 lock / check / export` on a contract module written in a temporary directory."""
+
+import itertools
+import sys
+import textwrap
+from collections.abc import Iterator
+from pathlib import Path
+
+import pytest
+
+from fastgrpc3.cli import main
+
+_names = itertools.count()
+
+CONTRACT = """
+from pydantic import BaseModel
+from fastgrpc3 import MethodDef, SchemaRegistry, ServiceDef, field
+
+class Order(BaseModel):
+{fields}
+
+registry = SchemaRegistry()
+registry.add_service(ServiceDef("Shop", "shop.v1", (MethodDef("Get", Order, Order),)))
+"""
+
+
+@pytest.fixture
+def workdir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
+    monkeypatch.chdir(tmp_path)
+    path_before = list(sys.path)
+    yield tmp_path
+    sys.path[:] = path_before
+
+
+def write_contract(workdir: Path, *fields: str) -> str:
+    """Write a contract module under a fresh name (imported modules are cached)."""
+    name = f"contract_{next(_names)}"
+    body = textwrap.indent("\n".join(fields), "    ")
+    (workdir / f"{name}.py").write_text(CONTRACT.format(fields=body), encoding="utf-8")
+    return f"{name}:registry"
+
+
+def test_lock_then_check(workdir: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    target = write_contract(workdir, 'number: str = ""', "qty: int = 0")
+    assert main(["check", target]) == 1
+    assert "proto.lock is missing" in capsys.readouterr().err
+
+    assert main(["lock", target]) == 0
+    assert "shop.v1.Order.qty: added (2)" in capsys.readouterr().out
+    assert main(["check", target]) == 0
+
+    # A field inserted first keeps the existing numbers; the old one is reserved.
+    moved = write_contract(workdir, 'note: str = ""', 'number: str = ""')
+    assert main(["check", moved]) == 1
+    err = capsys.readouterr().err
+    assert "shop.v1.Order.note: added (3)" in err
+    assert "shop.v1.Order.qty: removed (2)" in err
+    assert main(["lock", moved]) == 0
+    assert "1 wire-breaking change" in capsys.readouterr().out
+    lock = (workdir / "proto.lock").read_text(encoding="utf-8")
+    assert "reserved = [2]" in lock
+    assert 'reserved_names = ["qty"]' in lock
+
+
+def test_export_writes_the_compiled_text(workdir: Path) -> None:
+    target = write_contract(workdir, 'number: str = field(1, default="")')
+    assert main(["export", target, "-o", "out"]) == 0
+    text = (workdir / "out/shop/v1/shop.proto").read_text(encoding="utf-8")
+    assert "message Order {\n  string number = 1;\n}\n" in text
+    assert "service Shop {\n  rpc Get(Order) returns (Order);\n}\n" in text
+
+
+def test_export_refuses_unlocked_fields(workdir: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    target = write_contract(workdir, 'number: str = ""')
+    assert main(["export", target]) == 1
+    assert "run `fastgrpc3 lock`" in capsys.readouterr().err
+    assert main(["lock", target, "--lock", "contract.lock"]) == 0
+    assert main(["export", target, "--lock", "contract.lock"]) == 0
+
+
+@pytest.mark.parametrize(
+    ("target", "message"),
+    [
+        ("no_colon", "module:attribute"),
+        ("missing_module:registry", "cannot import missing_module"),
+        ("{contract}:nothing", "has no attribute 'nothing'"),
+        ("{contract}:Order", "is not a SchemaRegistry"),
+    ],
+)
+def test_bad_targets(
+    workdir: Path, capsys: pytest.CaptureFixture[str], target: str, message: str
+) -> None:
+    contract = write_contract(workdir, "a: int = 0").partition(":")[0]
+    assert main(["check", target.format(contract=contract)]) == 1
+    assert message in capsys.readouterr().err
+
+
+def test_schema_errors_are_reported_without_traceback(
+    workdir: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    target = write_contract(workdir, "a: int = field(19500, default=0)")
+    assert main(["lock", target]) == 1
+    assert capsys.readouterr().err.startswith("error: shop.v1.Order.a: field numbers 19000")

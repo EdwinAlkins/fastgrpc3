@@ -131,13 +131,18 @@ uv run fastgrpc3 run bookstore.app:app --workers 2
 
 With a server running, reflection and health answer the usual tools
 ([grpcurl](https://github.com/fullstorydev/grpcurl),
+[grpcui](https://github.com/fullstorydev/grpcui),
 [grpc-health-probe](https://github.com/grpc-ecosystem/grpc-health-probe)):
 
 ```bash
 grpcurl -plaintext localhost:50051 list
 grpcurl -plaintext -d '{"isbn": "9782070360024"}' localhost:50051 bookstore.v1.Bookstore/GetBook
+grpcui -plaintext -port 8090 localhost:50051   # a web UI on http://127.0.0.1:8090/
 grpc-health-probe -addr=localhost:50051 -service=bookstore.v1.Bookstore
 ```
+
+grpcui talks gRPC itself (no gateway): it reads the contract through reflection, and its
+"Request Metadata" table sends `x-user: admin` for `CreateBook`.
 
 `CreateBook` trusts an `x-user` header to keep the example short. A real service would
 authenticate the caller (TLS client certificates, or a token checked by an

@@ -229,7 +229,9 @@ stops (before the grace period), so load balancers drain it. `health.set_not_ser
 `set_serving(name)` and `set_status(name, status)` change a status (`""` is the whole
 server); `Check` of an unknown service answers `NOT_FOUND`. Reflection serves the
 descriptor compiled at startup, so `grpcurl list` / `describe` / calls show exactly what
-runs.
+runs, and [grpcui](https://github.com/fullstorydev/grpcui) gives a web UI on top of it with
+no setup (`grpcui -plaintext localhost:50051`): forms built from the messages, metadata,
+streams.
 
 ## Interactive docs
 

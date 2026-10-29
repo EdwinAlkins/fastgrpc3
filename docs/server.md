@@ -126,8 +126,10 @@ async def GetOrder(
 ) -> Order: ...
 ```
 
-- A provider is a function, a coroutine function, or a sync or async generator; its own
-  parameters can be `Depends(...)` and `Context`.
+- A provider is a function, a coroutine function, a sync or async generator, a class (its
+  `__init__` parameters are filled: `Depends(Repository)`), an instance whose `__call__` is
+  any of these, or a `functools.partial`; its own parameters can be `Depends(...)` and
+  `Context`.
 - Within one call, a provider runs once and its value is shared
   (`Depends(provider, use_cache=False)` to opt out).
 - Generator providers are cleaned up after the response, after the last message of a

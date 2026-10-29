@@ -1,6 +1,7 @@
 """Dependency injection: sub-dependencies, cache, cleanup, overrides, signatures."""
 
 import asyncio
+import functools
 import logging
 import time
 from collections.abc import AsyncIterator, Iterator
@@ -341,6 +342,86 @@ async def test_the_app_can_run_every_def_provider_in_a_thread() -> None:
         assert time.perf_counter() - started < 0.3
     with pytest.raises(ValueError, match="sync_providers"):
         GrpcApp(tls=Insecure(), sync_providers="threads")  # type: ignore[arg-type]
+
+
+class Repository:
+    """A class as a provider: its `__init__` parameters are filled."""
+
+    def __init__(self, ctx: Context, name: str = Depends(lambda: "db")) -> None:
+        self.where = f"{name}@{ctx.method}"
+
+
+class Session:
+    """A callable instance whose `__call__` is a generator."""
+
+    def __init__(self) -> None:
+        self.events: list[str] = []
+
+    def __call__(self) -> Iterator[str]:
+        self.events.append("open")
+        yield "session"
+        self.events.append("close")
+
+
+class Tenant:
+    """A callable instance whose `__call__` is a coroutine."""
+
+    async def __call__(self, ctx: Context) -> str:
+        return str(ctx.metadata.get("x-tenant", "none"))
+
+
+async def lookup(ctx: Context, table: str) -> str:
+    return f"{table}:{ctx.method}"
+
+
+async def test_classes_instances_and_partials_are_providers() -> None:
+    session = Session()
+    service = GrpcService("Deps", package="deps.v1")
+
+    @service.unary()
+    async def Get(
+        req: Req,
+        repo: Repository = Depends(Repository),
+        s: str = Depends(session),
+        tenant: str = Depends(Tenant()),
+        row: str = Depends(functools.partial(lookup, table="users")),
+    ) -> Rep:
+        return Rep(text=f"{repo.where} {s} {tenant} {row}")
+
+    app = GrpcApp(tls=Insecure())
+    app.add_service(service)
+    async with TestClient(app) as tc:
+        reply = await tc.client(DepsClient).get(Req(), metadata={"x-tenant": "acme"})
+    method = "/deps.v1.Deps/Get"
+    assert reply.text == f"db@{method} session acme users:{method}"
+    assert session.events == ["open", "close"]
+
+
+def test_kinds_of_callable_providers() -> None:
+    plan = plan_dependencies(
+        {
+            "a": Depends(Repository),
+            "b": Depends(Session()),
+            "c": Depends(Tenant()),
+            "d": Depends(functools.partial(lookup, table="t")),
+        },
+        overrides={},
+    )
+    assert [node.kind for node in plan.nodes] == ["call", "call", "generator", "async", "async"]
+    assert blocking(Repository) is Repository
+    with pytest.raises(TypeError, match="only `def` providers run in threads"):
+        blocking(Tenant())
+
+
+def test_providers_must_be_hashable() -> None:
+    class Unhashable:
+        __hash__ = None  # type: ignore[assignment]
+
+        def __call__(self) -> int:
+            return 1
+
+    with pytest.raises(TypeError, match="Unhashable instance is not hashable"):
+        plan_dependencies({"x": Depends(Unhashable())}, overrides={})
 
 
 def test_provider_parameters_must_be_filled() -> None:

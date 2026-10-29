@@ -1,12 +1,13 @@
 """Dependency injection, as in FastAPI: `Depends(provider)` in a handler's parameters.
 
 A provider may itself take `Depends(...)` and `Context` parameters. It can be a function, a
-coroutine function, or a (sync or async) generator whose code after `yield` runs once the
-response is sent. A generator sees the handler's exception at its `yield`, but cannot
-swallow it: if it does not raise it again, the call still fails. Within one call, a
-provider runs once and its value is shared (`use_cache=False` opts out). The graph is
-resolved when the server starts, with `dependency_overrides` applied, so a call does no
-introspection.
+coroutine function, a (sync or async) generator whose code after `yield` runs once the
+response is sent, a class (its `__init__` parameters are filled), an instance with a
+`__call__` of any of these kinds, or a `functools.partial`. A generator sees the handler's
+exception at its `yield`, but cannot swallow it: if it does not raise it again, the call
+still fails. Within one call, a provider runs once and its value is shared
+(`use_cache=False` opts out). The graph is resolved when the server starts, with
+`dependency_overrides` applied, so a call does no introspection.
 
 A `def` provider (function or generator) runs on the event loop: cheap, but while it
 blocks, no other call of the process progresses. `@blocking` runs it in a thread instead
@@ -18,10 +19,10 @@ holds the loop longer than `SLOW_PROVIDER_SECONDS` is reported once in the log.
 
 import asyncio
 import contextlib
+import functools
 import inspect
 import logging
 import time
-import typing
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Annotated, Any, get_args, get_origin
@@ -78,7 +79,7 @@ def non_blocking[P: Provider](provider: P) -> P:
 
 
 def _mark[P: Provider](provider: P, *, threadpool: bool) -> P:
-    if inspect.iscoroutinefunction(provider) or inspect.isasyncgenfunction(provider):
+    if _kind(provider) not in ("call", "generator"):
         raise TypeError(f"{_name(provider)}: only `def` providers run in threads")
     setattr(provider, _THREADPOOL, threadpool)  # the function itself: overrides still match
     return provider
@@ -96,19 +97,22 @@ class Parameter:
 
 
 def inspect_parameters(function: Callable[..., Any]) -> list[Parameter]:
-    """The parameters of `function`, with annotations resolved. The framework passes
-    arguments by name, so positional-only parameters, `*args` and `**kwargs` are refused."""
+    """The parameters of `function` (a class: of its `__init__`; a `partial`: those left),
+    with annotations resolved. The framework passes arguments by name, so positional-only
+    parameters, `*args` and `**kwargs` are refused."""
     try:
-        hints = typing.get_type_hints(function, include_extras=True)
-    except (NameError, TypeError) as e:
-        raise TypeError(f"cannot resolve the annotations of {_name(function)}: {e}") from e
+        signature = inspect.signature(function, eval_str=True)
+    except (NameError, TypeError, ValueError) as e:
+        raise TypeError(f"cannot read the signature of {_name(function)}: {e}") from e
     parameters = []
-    for parameter in inspect.signature(function).parameters.values():
+    for parameter in signature.parameters.values():
         if parameter.kind not in (parameter.POSITIONAL_OR_KEYWORD, parameter.KEYWORD_ONLY):
             raise TypeError(
                 f"{_name(function)}: parameter {parameter.name!r} cannot be passed by name"
             )
-        annotation = hints.get(parameter.name, Any)
+        annotation = parameter.annotation
+        if annotation is inspect.Parameter.empty:
+            annotation = Any
         depends = parameter.default if isinstance(parameter.default, Dependency) else None
         if get_origin(annotation) is Annotated:
             annotation, *extras = get_args(annotation)
@@ -177,7 +181,11 @@ class _PlanBuilder:
         self.cached: dict[Provider, int] = {}
 
     def node(self, depends: Dependency, path: tuple[Provider, ...]) -> int:
-        provider = self.overrides.get(depends.dependency, depends.dependency)
+        try:
+            provider = self.overrides.get(depends.dependency, depends.dependency)
+            hash(provider)
+        except TypeError:
+            raise TypeError(f"dependency {_name(depends.dependency)} is not hashable") from None
         if depends.use_cache and provider in self.cached:
             return self.cached[provider]
         if provider in path:
@@ -206,13 +214,24 @@ class _PlanBuilder:
 
 
 def _kind(provider: Provider) -> str:
-    if inspect.isasyncgenfunction(provider):
+    target = _called(provider)
+    if inspect.isasyncgenfunction(target):
         return "async_generator"
-    if inspect.isgeneratorfunction(provider):
+    if inspect.isgeneratorfunction(target):
         return "generator"
-    if inspect.iscoroutinefunction(provider):
+    if inspect.iscoroutinefunction(target):
         return "async"
     return "call"
+
+
+def _called(provider: Provider) -> Provider:
+    """What runs when `provider` is called: a callable instance's `__call__`."""
+    if inspect.isclass(provider) or inspect.isroutine(provider):
+        return provider
+    if isinstance(provider, functools.partial):
+        return provider  # `inspect` looks through partials
+    call: Provider = type(provider).__call__  # its kind is the kind of the function
+    return call
 
 
 async def _call(
@@ -289,4 +308,7 @@ def _watch(provider: Provider, started: float) -> None:
 
 
 def _name(function: Callable[..., Any]) -> str:
-    return getattr(function, "__qualname__", repr(function))
+    if isinstance(function, functools.partial):
+        return f"partial({_name(function.func)})"
+    name = getattr(function, "__qualname__", None)
+    return name if isinstance(name, str) else f"{type(function).__qualname__} instance"

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import datetime
+from typing import ClassVar
 
 from fastgrpc3.types import ProtoModel
 from fastgrpc3.types import field as field_
@@ -109,6 +110,8 @@ class QuotaFailure(
         1, default_factory=list, description="Describes all quota violations."
     )
 
+    Violation: ClassVar[type[QuotaFailure_Violation]]
+
 
 class QuotaFailure_Violation(ProtoModel, proto="google.rpc.QuotaFailure.Violation"):
     """A message type used to describe a single quota violation.  For example, a
@@ -171,6 +174,8 @@ class PreconditionFailure(
         1, default_factory=list, description="Describes all precondition violations."
     )
 
+    Violation: ClassVar[type[PreconditionFailure_Violation]]
+
 
 class PreconditionFailure_Violation(ProtoModel, proto="google.rpc.PreconditionFailure.Violation"):
     """A message type used to describe a single precondition failure."""
@@ -200,6 +205,8 @@ class BadRequest(ProtoModel, proto="google.rpc.BadRequest", file="google/rpc/err
     field_violations: list[BadRequest_FieldViolation] = field_(
         1, default_factory=list, description="Describes all violations in a client request."
     )
+
+    FieldViolation: ClassVar[type[BadRequest_FieldViolation]]
 
 
 class BadRequest_FieldViolation(ProtoModel, proto="google.rpc.BadRequest.FieldViolation"):
@@ -285,6 +292,8 @@ class Help(ProtoModel, proto="google.rpc.Help", file="google/rpc/error_details.p
         description="URL(s) pointing to additional information on handling the current error.",
     )
 
+    Link: ClassVar[type[Help_Link]]
+
 
 class Help_Link(ProtoModel, proto="google.rpc.Help.Link"):
     """Describes a URL link."""
@@ -308,6 +317,12 @@ class LocalizedMessage(
     message: str = field_(
         2, default="", description="The localized error message in the above locale."
     )
+
+
+QuotaFailure.Violation = QuotaFailure_Violation
+PreconditionFailure.Violation = PreconditionFailure_Violation
+BadRequest.FieldViolation = BadRequest_FieldViolation
+Help.Link = Help_Link
 
 
 QuotaFailure.model_rebuild()

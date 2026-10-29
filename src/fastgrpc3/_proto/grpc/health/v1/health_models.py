@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 from fastgrpc3.types import ProtoEnum, ProtoModel, field
 
 
@@ -25,6 +27,8 @@ class HealthCheckResponse(ProtoModel, proto="grpc.health.v1.HealthCheckResponse"
         1, default=HealthCheckResponse_ServingStatus.UNKNOWN
     )
 
+    ServingStatus: ClassVar[type[HealthCheckResponse_ServingStatus]]
+
 
 class HealthListRequest(ProtoModel, proto="grpc.health.v1.HealthListRequest"):
     pass
@@ -36,3 +40,6 @@ class HealthListResponse(ProtoModel, proto="grpc.health.v1.HealthListResponse"):
         default_factory=dict,
         description="statuses contains all the services and their respective status.",
     )
+
+
+HealthCheckResponse.ServingStatus = HealthCheckResponse_ServingStatus

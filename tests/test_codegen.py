@@ -100,7 +100,7 @@ def test_models_module(files: dict[str, str]) -> None:
         "from __future__ import annotations\n"
         "\n"
         "import datetime\n"
-        "from typing import Any\n"
+        "from typing import Any, ClassVar\n"
     )
     assert "from ...common.v1 import money_models as _common_v1_money\n" in text
     expected = [
@@ -137,13 +137,28 @@ def test_models_module(files: dict[str, str]) -> None:
         "    big: UInt64 = field(21, default=0)\n"
         "    by_position: dict[Int32, Line] = field(22, default_factory=dict)\n"
         "    delta: SInt32 = field(23, default=0)\n"
-        "    limit: Int64Value | None = field(24, default=None)\n",
+        "    limit: Int64Value | None = field(24, default=None)\n"
+        "\n"
+        "    Card: ClassVar[type[Order_Card]]\n",
         'class Order_Card(ProtoModel, proto="shop.v1.Order.Card"):\n',
-        "    kind: Order_Card_Kind = field(2, default=Order_Card_Kind.UNSPECIFIED)\n",
+        "    kind: Order_Card_Kind = field(2, default=Order_Card_Kind.UNSPECIFIED)\n"
+        "\n"
+        "    Kind: ClassVar[type[Order_Card_Kind]]\n",
+        # Nested types are reachable as A.B too, once every class exists.
+        "Order.Card = Order_Card\nOrder_Card.Kind = Order_Card_Kind\n",
         "Order.model_rebuild()\n",
     ]
     for block in expected:
         assert block in text
+
+
+def test_nested_types_are_reachable_from_their_parent(package: tuple[str, Path]) -> None:
+    shop = load(package, "shop.v1.shop_models")
+    assert shop.Order.Card is shop.Order_Card
+    assert shop.Order.Card.Kind is shop.Order_Card_Kind
+    assert "Card" not in shop.Order.model_fields
+    card = shop.Order.Card(number="4", kind=shop.Order.Card.Kind.UNSPECIFIED)
+    assert shop.Order(card=card).card == card
 
 
 def test_services_module(files: dict[str, str]) -> None:

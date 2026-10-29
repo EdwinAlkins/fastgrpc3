@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 
 from protoruf import Schema
 from protoruf.schema import EnumInfo, FieldInfo, MessageInfo, ServiceInfo
+from pydantic import BaseModel
 
 from fastgrpc3.api.client import GrpcClient
 from fastgrpc3.codegen.naming import (
@@ -126,6 +127,9 @@ def models_module(index: Index, file: str) -> str:
     module = _Module(index, file, Imports(taken=taken))
     blocks = [module.enum_class(info) for info in enums]
     blocks += [module.message_class(info) for info in messages]
+    if module.aliases:
+        # `A.B` for the nested type `A_B`, once both classes exist.
+        blocks.append(module.aliases)
     position = {info.full_name: i for i, info in enumerate(messages)}
     rebuilds = [
         f"{index.classes[info.full_name][1]}.model_rebuild()"
@@ -221,6 +225,8 @@ class _Module:
     imports: Imports
     # The services module refers to the models of its own file through an import.
     import_own_models: bool = False
+    #: `Parent.Nested = Parent_Nested` lines, filled by `message_class`.
+    aliases: list[str] = field(default_factory=list)
 
     def source(self, doc: str, blocks: list[list[str]]) -> str:
         body = list(blank_separated(blocks))
@@ -284,9 +290,28 @@ class _Module:
         taken: set[str] = set()
         for proto_field in info.fields:
             lines += self.field_line(proto_field, field_name(proto_field.name, taken))
+        nested = self.nested_types(info, taken)
+        if nested and info.fields:
+            lines.append("")
+        for short, nested_class in nested:
+            class_var = self.imports.use("typing", "ClassVar")
+            lines.append(f"{INDENT}{short}: {class_var}[type[{nested_class}]]")
+            self.aliases.append(f"{name}.{short} = {nested_class}")
         if len(lines) == 1:
             lines.append(f"{INDENT}pass")
         return lines
+
+    def nested_types(self, info: MessageInfo, fields: set[str]) -> list[tuple[str, str]]:
+        """`(short name, class)` of the types declared in `info`, reachable as `A.B`; none
+        when the short name is taken by a field or by Pydantic itself."""
+        nested = []
+        for full_name in self.index.children.get(info.full_name, []):
+            if full_name not in self.index.classes:
+                continue
+            short = full_name.rpartition(".")[2]
+            if short not in fields and not hasattr(BaseModel, short):
+                nested.append((short, self.index.classes[full_name][1]))
+        return nested
 
     def layout_args(self, info: MessageInfo | EnumInfo) -> list[str]:
         """`file=` (when not the package's default file) and `reserved=` class arguments."""

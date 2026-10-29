@@ -78,6 +78,9 @@ class Order(ProtoModel, proto="orders.v1.Order"):
     note: str | None = field(4, default=None)
 ```
 
+A nested type (`message Order { message Line {} }`) is the class `Order_Line`, also
+reachable as `Order.Line`: both names are the same class, typed for mypy.
+
 and `orders_service.py` the contract and the client:
 
 ```python

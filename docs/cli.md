@@ -47,6 +47,29 @@ fastgrpc3 check TARGET [--lock proto.lock]
 
 Exit 1 when `proto.lock` is missing or does not match the models; for CI.
 
+## `breaking`
+
+```text
+fastgrpc3 breaking TARGET --against REF [--lock proto.lock]
+```
+
+List the changes since `REF` that break existing peers, and exit 1 if there is one. `REF`
+is a git ref (`origin/main`, a tag): the code at that ref is exported in a temporary
+worktree, with this fastgrpc3; or a directory of `.proto` files, such as an earlier
+`fastgrpc3 export`.
+
+- **breaking**: a message, enum, service or method removed; a field or enum value removed
+  without reserving its number; a field whose wire type, cardinality (singular, repeated,
+  map) or oneof changed; a reserved number reused; a method whose request, response or
+  streaming changed. Types sharing an encoding stay compatible (`int32` → `int64`,
+  `string` → `bytes`), as in `buf breaking`'s WIRE rules.
+- **warning** (does not fail): a field or enum value renamed, `optional` added or removed.
+  The wire still works, but JSON (the docs gateway, other languages) and the generated code
+  change.
+
+Pydantic constraints are not compared: a new field without a default is required by the
+model, though proto3 has no required fields.
+
 ## `export`
 
 ```text

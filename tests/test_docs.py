@@ -197,7 +197,7 @@ def test_docs_settings_are_checked() -> None:
 def test_cli_writes_the_openapi_document(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    module = tmp_path / "shop_app.py"
+    module = tmp_path / "docs_shop_app.py"
     module.write_text(
         "from fastgrpc3 import GrpcApp, Insecure\n"
         "from tests.test_docs import make_service\n"
@@ -206,7 +206,7 @@ def test_cli_writes_the_openapi_document(
     )
     monkeypatch.chdir(tmp_path)
     monkeypatch.syspath_prepend(str(Path(__file__).parents[1]))
-    assert main(["openapi", "shop_app:app", "-o", "openapi.json"]) == 0
+    assert main(["openapi", "docs_shop_app:app", "-o", "openapi.json"]) == 0
     document = json.loads((tmp_path / "openapi.json").read_text())
     assert document["info"]["title"] == "shop"
     assert "/shop.v1.Shop/Echo" in document["paths"]

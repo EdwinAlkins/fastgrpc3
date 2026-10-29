@@ -5,21 +5,28 @@
 - `openapi`: the OpenAPI document of an app's RPCs (what `app.enable_docs` serves).
 - `export`, `lock`, `check`: code-first contracts. TARGET is `module:attribute`, naming a
   `SchemaRegistry` or an object with a `schema_registry` attribute (the application).
+- `breaking`: the changes since a git ref (or a directory of `.proto` files) that break
+  existing peers.
 """
 
 import argparse
 import importlib
 import json
+import subprocess
 import sys
+import tempfile
 import tomllib
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
+import protoruf
+
 from fastgrpc3.api.app import GrpcApp
 from fastgrpc3.codegen.generate import CodegenError, check, generate, write
 from fastgrpc3.ops.openapi import openapi
 from fastgrpc3.runtime.workers import serve
+from fastgrpc3.schema.breaking import breaking_changes
 from fastgrpc3.schema.lock import Lock, LockError
 from fastgrpc3.schema.registry import SchemaError, SchemaRegistry
 from fastgrpc3.schema.schema import Schema
@@ -175,6 +182,63 @@ def _check(args: argparse.Namespace) -> int:
     return 1
 
 
+def _breaking(args: argparse.Namespace) -> int:
+    registry, lock_path = load_registry(args.target), Path(args.lock)
+    current = Schema.from_registry(registry, Lock.load(lock_path), unlocked="error")
+    previous = protoruf.Schema(_previous_descriptor(args.against, args.target, args.lock))
+    findings = breaking_changes(previous, current.info)
+    for finding in findings:
+        print(finding)
+    count = sum(finding.level == "breaking" for finding in findings)
+    if count:
+        print(f"{count} breaking change(s) since {args.against}", file=sys.stderr)
+        return 1
+    print(f"no breaking change since {args.against}")
+    return 0
+
+
+def _previous_descriptor(against: str, target: str, lock: str) -> bytes:
+    """The contract at `against`: a directory of `.proto` files, or a git ref whose code is
+    exported in a temporary worktree (with this fastgrpc3)."""
+    if Path(against).is_dir():
+        return _compile_directory(Path(against))
+    top = _git("rev-parse", "--show-toplevel").strip()
+    if _git_status("rev-parse", "--verify", "--quiet", f"{against}^{{commit}}") != 0:
+        raise CliError(f"{against} is neither a directory nor a git ref")
+    here = Path.cwd().resolve().relative_to(Path(top).resolve())
+    with tempfile.TemporaryDirectory(prefix="fastgrpc3-breaking-") as tmp:
+        worktree, output = Path(tmp) / "tree", Path(tmp) / "proto"
+        _git("worktree", "add", "--detach", "--quiet", str(worktree), against)
+        try:
+            command = [sys.executable, "-m", "fastgrpc3", "export", target]
+            command += ["-o", str(output), "--lock", lock]
+            done = subprocess.run(command, cwd=worktree / here, capture_output=True, text=True)
+            if done.returncode != 0:
+                reason = done.stderr.strip().splitlines()[-1:] or ["failed"]
+                raise CliError(f"cannot export {target} at {against}: {reason[0]}")
+            return _compile_directory(output)
+        finally:
+            _git("worktree", "remove", "--force", str(worktree))
+
+
+def _compile_directory(directory: Path) -> bytes:
+    roots = sorted(str(path.relative_to(directory)) for path in directory.rglob("*.proto"))
+    if not roots:
+        raise CliError(f"no .proto file in {directory}")
+    return protoruf.compile_protos(roots, [directory])
+
+
+def _git(*arguments: str) -> str:
+    done = subprocess.run(["git", *arguments], capture_output=True, text=True)
+    if done.returncode != 0:
+        raise CliError(f"git {arguments[0]}: {done.stderr.strip()}")
+    return done.stdout
+
+
+def _git_status(*arguments: str) -> int:
+    return subprocess.run(["git", *arguments], capture_output=True).returncode
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="fastgrpc3", description=__doc__.splitlines()[0])
     commands = parser.add_subparsers(required=True, metavar="COMMAND")
@@ -218,5 +282,9 @@ def _parser() -> argparse.ArgumentParser:
     export = command("export", _export, "write the .proto files of the contract")
     export.add_argument("-o", "--output", default="proto", help="directory (default: %(default)s)")
     command("lock", _lock, "number new fields and update proto.lock")
+    breaking = command("breaking", _breaking, "list the changes that break existing peers")
+    breaking.add_argument(
+        "--against", required=True, help="git ref, or directory of .proto files, to compare to"
+    )
     command("check", _check, "fail if proto.lock does not match the models (for CI)")
     return parser

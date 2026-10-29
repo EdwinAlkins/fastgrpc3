@@ -64,6 +64,18 @@ def _not_async(req: Req) -> Rep:
     return Rep()
 
 
+async def _two_contexts(req: Req, first: Context, second: Context) -> Rep:
+    return Rep()
+
+
+async def _positional_only(req: Req, /, ctx: Context) -> Rep:
+    return Rep()
+
+
+async def _var_keyword(req: Req, **extra: Any) -> Rep:
+    return Rep()
+
+
 @pytest.mark.parametrize(
     ("kind", "function", "message"),
     [
@@ -76,6 +88,9 @@ def _not_async(req: Req) -> Rep:
         ("unary", _unknown_parameter, "parameter 'other' is not the request"),
         ("unary", _bad_return, "return annotation must be a model"),
         ("unary", _not_async, "is an `async def` function"),
+        ("unary", _two_contexts, "two Context parameters"),
+        ("unary", _positional_only, "parameter 'req' cannot be passed by name"),
+        ("unary", _var_keyword, "parameter 'extra' cannot be passed by name"),
     ],
 )
 def test_wrong_signatures_are_refused(kind: str, function: Any, message: str) -> None:

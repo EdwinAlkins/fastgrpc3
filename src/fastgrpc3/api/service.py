@@ -130,6 +130,8 @@ def analyze_handler(function: Function, name: str, kind: str) -> Handler:
             dependencies[parameter.name] = parameter.depends
             continue
         if parameter.annotation is Context:
+            if context_parameter is not None:
+                raise TypeError(f"{where}: two Context parameters")
             context_parameter = parameter.name
             continue
         model, streamed = _message_type(parameter.annotation)

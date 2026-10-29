@@ -6,7 +6,16 @@ from typing import Annotated
 import pytest
 from pydantic import BaseModel
 
-from fastgrpc3 import Context, Depends, GrpcApp, GrpcClient, GrpcService, Insecure
+from fastgrpc3 import (
+    Context,
+    Depends,
+    GrpcApp,
+    GrpcClient,
+    GrpcError,
+    GrpcService,
+    Insecure,
+    StatusCode,
+)
 from fastgrpc3.api.deps import plan_dependencies
 from fastgrpc3.testing import TestClient
 
@@ -121,6 +130,58 @@ def test_dependency_cycles_are_refused() -> None:
 
     with pytest.raises(TypeError, match="dependency cycle"):
         plan_dependencies({"x": Depends(b)}, overrides={a: b})
+
+
+async def test_a_dependency_cannot_swallow_the_handler_error() -> None:
+    """A generator that catches the error without raising it again still runs its
+    cleanup, outer dependencies see the error too, and the call fails."""
+    events: list[str] = []
+
+    def transaction() -> Iterator[str]:
+        try:
+            yield "tx"
+        except Exception as e:
+            events.append(f"commit skipped: {e}")
+        else:
+            events.append("commit")
+
+    async def session(tx: str = Depends(transaction)) -> AsyncIterator[str]:
+        try:
+            yield "session"
+        except Exception as e:
+            events.append(f"rollback: {e}")  # swallowed
+
+    service = GrpcService("Deps", package="deps.v1")
+
+    @service.unary()
+    async def Get(req: Req, s: str = Depends(session)) -> Rep:
+        raise RuntimeError("boom")
+
+    @service.unary_stream()
+    async def Stream(req: Req, s: str = Depends(session)) -> AsyncIterator[Rep]:
+        yield Rep(text="first")
+        raise RuntimeError("late")
+
+    app = GrpcApp(tls=Insecure())
+    app.add_service(service)
+    async with TestClient(app) as tc:
+        deps = tc.client(DepsClient)
+        with pytest.raises(GrpcError) as unary:
+            await deps.get(Req())
+        assert (unary.value.code, unary.value.message) == (
+            StatusCode.INTERNAL,
+            "internal server error",
+        )
+        assert events == ["rollback: boom", "commit skipped: boom"]
+
+        events.clear()
+        received = []
+        with pytest.raises(GrpcError) as stream:
+            async for reply in deps.stream(Req()):
+                received.append(reply.text)
+        assert received == ["first"]
+        assert stream.value.code == StatusCode.INTERNAL
+        assert events == ["rollback: late", "commit skipped: late"]
 
 
 def test_provider_parameters_must_be_filled() -> None:

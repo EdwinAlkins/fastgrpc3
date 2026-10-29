@@ -102,6 +102,7 @@ class GrpcApp:
 
     def add_service(self, service: GrpcService) -> None:
         """Serve a service."""
+        self._check_not_started()
         if any(s.full_name == service.full_name for s in self.services):
             raise ValueError(f"service {service.full_name} added twice")
         self.services.append(service)
@@ -110,6 +111,7 @@ class GrpcApp:
 
     def add_model(self, model: type[BaseModel]) -> None:
         """Add a model no method uses to the contract (an error detail, for instance)."""
+        self._check_not_started()
         self.models.append(model)
 
     def add_interceptor(self, hook: Hook) -> None:

@@ -61,13 +61,13 @@ when the module is imported:
 
 - the request is the parameter annotated with a model (`AsyncIterator[Model]` for a client
   stream);
-- a parameter annotated `Context` receives the call's context;
+- a parameter annotated `Context` receives the call's context (one at most);
 - `Depends(...)` parameters are injected;
 - the return annotation is the response model (`AsyncIterator[Model]` for a server stream,
   which must be an async generator).
 
-Anything else (a parameter nothing can fill, a wrong kind of function) raises `TypeError`
-at import. The decorated function is returned unchanged, so it can be called directly in
+Anything else (a parameter nothing can fill, a positional-only parameter, `*args` or
+`**kwargs`, a wrong kind of function) raises `TypeError` at import. The decorated function is returned unchanged, so it can be called directly in
 unit tests.
 
 A handler may return the response model, a subclass instance, or a `dict` (validated into
@@ -124,7 +124,9 @@ async def GetOrder(
 - Within one call, a provider runs once and its value is shared
   (`Depends(provider, use_cache=False)` to opt out).
 - Generator providers are cleaned up after the response, after the last message of a
-  stream, and when the call fails or is cancelled.
+  stream, and when the call fails or is cancelled. On failure, the exception is raised at
+  their `yield`; a provider that catches it (to roll back, say) cannot swallow it: the call
+  still fails, and the providers around it see the exception too.
 - `app.dependency_overrides[provider] = replacement` swaps a provider; overrides are read
   when the app starts.
 - The dependency graph is resolved at start: a cycle or a parameter nothing can fill fails

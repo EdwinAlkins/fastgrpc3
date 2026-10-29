@@ -2,15 +2,17 @@
 
 A provider may itself take `Depends(...)` and `Context` parameters. It can be a function, a
 coroutine function, or a (sync or async) generator whose code after `yield` runs once the
-response is sent. Within one call, a provider runs once and its value is shared
-(`use_cache=False` opts out). The graph is resolved when the server starts, with
-`dependency_overrides` applied, so a call does no introspection.
+response is sent. A generator sees the handler's exception at its `yield`, but cannot
+swallow it: if it does not raise it again, the call still fails. Within one call, a
+provider runs once and its value is shared (`use_cache=False` opts out). The graph is
+resolved when the server starts, with `dependency_overrides` applied, so a call does no
+introspection.
 """
 
 import contextlib
 import inspect
 import typing
-from collections.abc import Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Annotated, Any, get_args, get_origin
 
@@ -56,13 +58,18 @@ class Parameter:
 
 
 def inspect_parameters(function: Callable[..., Any]) -> list[Parameter]:
-    """The parameters of `function`, with annotations resolved."""
+    """The parameters of `function`, with annotations resolved. The framework passes
+    arguments by name, so positional-only parameters, `*args` and `**kwargs` are refused."""
     try:
         hints = typing.get_type_hints(function, include_extras=True)
     except (NameError, TypeError) as e:
         raise TypeError(f"cannot resolve the annotations of {_name(function)}: {e}") from e
     parameters = []
     for parameter in inspect.signature(function).parameters.values():
+        if parameter.kind not in (parameter.POSITIONAL_OR_KEYWORD, parameter.KEYWORD_ONLY):
+            raise TypeError(
+                f"{_name(function)}: parameter {parameter.name!r} cannot be passed by name"
+            )
         annotation = hints.get(parameter.name, Any)
         depends = parameter.default if isinstance(parameter.default, Dependency) else None
         if get_origin(annotation) is Annotated:
@@ -171,9 +178,36 @@ async def _call(
         return await result if inspect.isawaitable(result) else result
     assert stack is not None  # plans with generators always get a stack
     if node.kind == "async_generator":
-        manager = contextlib.asynccontextmanager(node.provider)(**kwargs)
-        return await stack.enter_async_context(manager)
-    return stack.enter_context(contextlib.contextmanager(node.provider)(**kwargs))
+        async_manager = contextlib.asynccontextmanager(node.provider)(**kwargs)
+        value = await async_manager.__aenter__()
+        stack.push_async_exit(_propagating_async(async_manager.__aexit__))
+        return value
+    manager = contextlib.contextmanager(node.provider)(**kwargs)
+    value = manager.__enter__()
+    stack.push(_propagating(manager.__exit__))
+    return value
+
+
+def _propagating(exit: Callable[..., bool | None]) -> Callable[..., bool]:
+    """`exit`, run for its cleanup only: the exception it was given goes on."""
+
+    def run(*details: Any) -> bool:
+        exit(*details)
+        return False
+
+    return run
+
+
+def _propagating_async(
+    exit: Callable[..., Awaitable[bool | None]],
+) -> Callable[..., Awaitable[bool]]:
+    """`exit`, run for its cleanup only: the exception it was given goes on."""
+
+    async def run(*details: Any) -> bool:
+        await exit(*details)
+        return False
+
+    return run
 
 
 def _name(function: Callable[..., Any]) -> str:

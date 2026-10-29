@@ -261,6 +261,10 @@ async def test_a_started_app_refuses_new_hooks() -> None:
     async with TestClient(app):
         with pytest.raises(RuntimeError, match="already started"):
             app.add_interceptor(lambda ctx: None)  # type: ignore[arg-type,return-value]
+        with pytest.raises(RuntimeError, match="already started"):
+            app.add_service(GrpcService("Other", package="other.v1"))
+        with pytest.raises(RuntimeError, match="already started"):
+            app.add_model(Req)
 
 
 def test_services_are_added_once() -> None:

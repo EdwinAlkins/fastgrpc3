@@ -39,7 +39,29 @@ def render(schema: ResolvedSchema) -> dict[str, str]:
     layout = _Layout(schema)
     imports = {file: _imports(schema, layout, file) for file in layout.files}
     _check_no_cycle(imports)
-    return {file: _render_file(schema, layout, file, imports[file]) for file in layout.files}
+    nested = _nested(schema)
+    return {
+        file: _render_file(schema, layout, nested, file, imports[file]) for file in layout.files
+    }
+
+
+class _Nested:
+    """The enums and messages declared inside each message, by its full name."""
+
+    def __init__(self) -> None:
+        self.enums: dict[str, list[EnumSpec]] = {}
+        self.messages: dict[str, list[MessageSpec]] = {}
+
+
+def _nested(schema: ResolvedSchema) -> _Nested:
+    nested = _Nested()
+    for enum_spec in schema.enums.values():
+        if (parent := schema.parent(enum_spec.full_name)) is not None:
+            nested.enums.setdefault(parent, []).append(enum_spec)
+    for message in schema.messages.values():
+        if (parent := schema.parent(message.full_name)) is not None:
+            nested.messages.setdefault(parent, []).append(message)
+    return nested
 
 
 def _is_version(part: str) -> bool:
@@ -131,7 +153,9 @@ def _check_no_cycle(imports: dict[str, list[str]]) -> None:
         visit(file, [])
 
 
-def _render_file(schema: ResolvedSchema, layout: _Layout, file: str, imports: list[str]) -> str:
+def _render_file(
+    schema: ResolvedSchema, layout: _Layout, nested: _Nested, file: str, imports: list[str]
+) -> str:
     package = layout.packages[file]
     lines = [HEADER, 'syntax = "proto3";', "", f"package {package};"]
     if imports:
@@ -142,7 +166,7 @@ def _render_file(schema: ResolvedSchema, layout: _Layout, file: str, imports: li
             lines += ["", *_render_enum(enum_spec)]
     for message in schema.messages.values():
         if _top_level(schema, layout, message.full_name, file):
-            lines += ["", *_render_message(schema, message)]
+            lines += ["", *_render_message(schema, nested, message)]
     for service in schema.services:
         if layout.service_file(service) == file:
             lines += ["", *_render_service(schema, service)]
@@ -175,7 +199,7 @@ def _render_enum(spec: EnumSpec) -> Iterator[str]:
     yield "}"
 
 
-def _render_message(schema: ResolvedSchema, message: MessageSpec) -> Iterator[str]:
+def _render_message(schema: ResolvedSchema, nested: _Nested, message: MessageSpec) -> Iterator[str]:
     yield from _comment(message.doc)
     yield f"message {message.name} {{"
     rendered_oneofs: set[str] = set()
@@ -193,14 +217,13 @@ def _render_message(schema: ResolvedSchema, message: MessageSpec) -> Iterator[st
         yield f"{INDENT}}}"
     yield from _render_reserved(message.reserved, message.reserved_names, MAX_FIELD_NUMBER)
     # Nested types, as in `message A { message B {} }`.
-    for enum_spec in schema.enums.values():
-        if schema.parent(enum_spec.full_name) == message.full_name:
-            yield ""
-            yield from (f"{INDENT}{line}".rstrip() for line in _render_enum(enum_spec))
-    for nested in schema.messages.values():
-        if schema.parent(nested.full_name) == message.full_name:
-            yield ""
-            yield from (f"{INDENT}{line}".rstrip() for line in _render_message(schema, nested))
+    for enum_spec in nested.enums.get(message.full_name, ()):
+        yield ""
+        yield from (f"{INDENT}{line}".rstrip() for line in _render_enum(enum_spec))
+    for child in nested.messages.get(message.full_name, ()):
+        yield ""
+        lines = _render_message(schema, nested, child)
+        yield from (f"{INDENT}{line}".rstrip() for line in lines)
     yield "}"
 
 

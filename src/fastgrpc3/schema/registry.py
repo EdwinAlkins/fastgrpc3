@@ -6,6 +6,7 @@ services, gives every message and enum its full name, numbers the fields with
 """
 
 import enum
+import functools
 import re
 from dataclasses import dataclass, field, replace
 from types import ModuleType
@@ -136,8 +137,11 @@ class ResolvedSchema:
     def parent(self, full_name: str) -> str | None:
         """The message a message or enum is nested in (`pkg.A.B` -> `pkg.A`), if any."""
         candidate = full_name.rpartition(".")[0]
-        names = {spec.full_name for spec in self.messages.values()}
-        return candidate if candidate in names else None
+        return candidate if candidate in self._message_names else None
+
+    @functools.cached_property
+    def _message_names(self) -> frozenset[str]:
+        return frozenset(spec.full_name for spec in self.messages.values())
 
     def package_of(self, full_name: str) -> str:
         """Package of a message or enum, nested ones included."""

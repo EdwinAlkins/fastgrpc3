@@ -16,6 +16,7 @@ from fastgrpc3.api.errors import (
 from fastgrpc3.api.metadata import Metadata
 from fastgrpc3.api.security import MTLS, TLS, BearerToken, Insecure
 from fastgrpc3.api.service import GrpcService
+from fastgrpc3.runtime.dispatch import CallNext
 from fastgrpc3.schema import (
     Lock,
     LockError,
@@ -34,6 +35,7 @@ __all__ = [
     "TLS",
     "BadRequest",
     "BearerToken",
+    "CallNext",
     "Channel",
     "Compression",
     "Context",

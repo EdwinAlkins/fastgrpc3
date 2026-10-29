@@ -1,0 +1,33 @@
+[project]
+name = "fastgrpc3-examples"
+version = "0.1.0"
+description = "A bookstore gRPC service and its client, built with fastgrpc3"
+requires-python = ">=3.12"
+dependencies = [
+    "fastgrpc3",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2",
+    "pytest-asyncio>=1.4",
+]
+
+[tool.uv]
+# The examples are run from this directory, they are not installed as a package.
+package = false
+
+[tool.uv.sources]
+# The fastgrpc3 of this repository; outside it, use the published package instead.
+fastgrpc3 = { path = "..", editable = true }
+
+[tool.ruff]
+# The repository's settings; `bookstore` is this project's own package.
+extend = "../pyproject.toml"
+src = ["."]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"

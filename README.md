@@ -19,6 +19,9 @@ over plain `grpc.aio` with generated stubs, validation included (`benches/result
 
 Requires Python 3.12 or later (tested on 3.12, 3.13 and 3.14).
 
+A complete example, a bookstore service with its client and tests, is in
+[`examples/`](examples/README.md).
+
 ## Server and client
 
 ```python
@@ -153,6 +156,16 @@ Each service module also holds the contract (`Orders`, to serve with
 `GrpcService.implement(Orders)`) and a typed client (`OrdersClient`). Generated code passes
 `mypy --strict` and `ruff`. Well-known types become Python types
 (`Timestamp` -> `datetime`, `Struct` -> `dict[str, Any]`, wrappers -> `X | None`…).
+
+## Documentation
+
+The guide and the reference live in [`docs/`](docs/index.md) (MkDocs). To build the site
+into `site/`, or to serve it locally with live reload:
+
+```bash
+uv run --project docs mkdocs build --strict
+uv run --project docs mkdocs serve          # http://127.0.0.1:8000
+```
 
 ## Development
 

@@ -1,0 +1,13 @@
+[project]
+name = "fastgrpc3-docs"
+version = "0"
+description = "Build environment of the fastgrpc3 documentation"
+requires-python = ">=3.12"
+dependencies = [
+    "mkdocs>=1.6",
+    "mkdocs-material>=9.5",
+    "pymdown-extensions>=10.7",
+]
+
+[tool.uv]
+package = false

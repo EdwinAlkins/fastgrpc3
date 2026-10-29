@@ -4,12 +4,16 @@
     python benches/e2e_servers.py MODE --prepare DIR   # write the protoset and request bytes
 
 Modes: `raw` (`grpc.aio` with `google.protobuf` (upb) messages, i.e. generated stubs, no
-framework), `fastgrpc2` and `fastgrpc3`. Every server echoes the request of
-`bench.v1.Bench/{Small,Medium,Large}`.
+framework), `fastgrpc2`, `fastgrpc3`, and `fastgrpc3-deps-N-KIND`: fastgrpc3 with N trivial
+dependencies per handler, each a `sync` or `async` function or a `gen` / `agen` generator.
+Every server echoes the request of `bench.v1.Bench/{Small,Medium,Large}`.
 """
 
 import argparse
 import asyncio
+import inspect
+import re
+from collections.abc import AsyncIterator, Callable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -33,13 +37,67 @@ def echo_handler(model: Any) -> Any:
     return echo
 
 
-def fastgrpc3_app(port: int) -> Any:
+DEPS_MODE = re.compile(r"fastgrpc3-deps-(\d+)-(sync|async|gen|agen)")
+
+
+def is_mode(mode: str) -> bool:
+    return mode in ("raw", "fastgrpc2", "fastgrpc3") or DEPS_MODE.fullmatch(mode) is not None
+
+
+def make_provider(kind: str) -> Callable[..., Any]:
+    """A dependency that does nothing, of the given kind."""
+
+    def sync() -> int:
+        return 1
+
+    async def async_() -> int:
+        return 1
+
+    def gen() -> Iterator[int]:
+        yield 1
+
+    async def agen() -> AsyncIterator[int]:
+        yield 1
+
+    providers: dict[str, Callable[..., Any]] = {
+        "sync": sync,
+        "async": async_,
+        "gen": gen,
+        "agen": agen,
+    }
+    return providers[kind]
+
+
+def deps_handler(model: Any, count: int, kind: str) -> Any:
+    """An echo handler with `count` dependencies of `kind`."""
+    from fastgrpc3 import Depends
+
+    async def echo(request: Any, **dependencies: int) -> Any:
+        return request
+
+    keyword = inspect.Parameter.KEYWORD_ONLY
+    parameters = [inspect.Parameter("request", inspect.Parameter.POSITIONAL_OR_KEYWORD)]
+    parameters += [
+        inspect.Parameter(f"d{i}", keyword, default=Depends(make_provider(kind)))
+        for i in range(count)
+    ]
+    echo.__signature__ = inspect.Signature(parameters)  # type: ignore[attr-defined]
+    echo.__annotations__ = {"request": model, "return": model}
+    return echo
+
+
+def fastgrpc3_app(port: int, mode: str = "fastgrpc3") -> Any:
     from fastgrpc3 import GrpcApp, GrpcService, Insecure
 
     models = make_models()
     service = GrpcService("Bench", package="bench.v1")
+    deps = DEPS_MODE.fullmatch(mode)
     for size in SIZES:
-        service.unary(method(size))(echo_handler(models.of(size)))
+        if deps is None:
+            handler = echo_handler(models.of(size))
+        else:
+            handler = deps_handler(models.of(size), int(deps[1]), deps[2])
+        service.unary(method(size))(handler)
     app = GrpcApp(tls=Insecure(), address=f"127.0.0.1:{port}")
     app.add_service(service)
     return app, models
@@ -121,17 +179,21 @@ def prepare(mode: str, directory: Path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("mode", choices=("raw", "fastgrpc2", "fastgrpc3"))
+    parser.add_argument("mode", help="raw, fastgrpc2, fastgrpc3 or fastgrpc3-deps-N-KIND")
     parser.add_argument("port", type=int, nargs="?", default=0)
     parser.add_argument("--prepare", type=Path, metavar="DIR")
     args = parser.parse_args()
+    if not is_mode(args.mode):
+        parser.error(f"unknown mode {args.mode}")
     if args.prepare:
         prepare(args.mode, args.prepare)
     elif args.mode == "raw":
         asyncio.run(serve_raw(args.port))
+    elif args.mode == "fastgrpc2":
+        app, _ = fastgrpc2_app(args.port)
+        asyncio.run(app.run())
     else:
-        maker = fastgrpc3_app if args.mode == "fastgrpc3" else fastgrpc2_app
-        app, _ = maker(args.port)
+        app, _ = fastgrpc3_app(args.port, args.mode)
         asyncio.run(app.run())
 
 

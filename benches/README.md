@@ -9,6 +9,7 @@ go install github.com/bojand/ghz/cmd/ghz@latest      # end-to-end only
 
 uv run --group bench python benches/codec_bench.py   # P1, P2: µs per message
 uv run --group bench python benches/e2e_bench.py     # P3, P4: requests/s, latency
+uv run --group bench python benches/e2e_bench.py --sizes small --modes fastgrpc3 fastgrpc3-deps-10-sync
 uv run python benches/stream_bench.py                # P5: memory on long streams
 ```
 
@@ -19,6 +20,6 @@ their reading live in `results/<date>.md`; compare runs from the same machine on
 |------|------|
 | `contract.py` | the small, medium (20 fields, nested) and large (1,000 lines) messages |
 | `codec_bench.py` | fastgrpc3 codec vs fastgrpc2 vs upb (raw, and with Pydantic) |
-| `e2e_servers.py` | echo servers: `raw` (`grpc.aio` + upb), `fastgrpc2`, `fastgrpc3` |
+| `e2e_servers.py` | echo servers: `raw` (`grpc.aio` + upb), `fastgrpc2`, `fastgrpc3`, `fastgrpc3-deps-N-KIND` (N dependencies) |
 | `e2e_bench.py` | runs each server pinned to one CPU and `ghz` on the others |
 | `stream_bench.py` | 200,000 messages each way, server RSS sampled along the stream |

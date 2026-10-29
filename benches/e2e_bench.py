@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any
 
 from contract import SIZES
+from e2e_servers import is_mode
 from environment import environment, markdown_table
 
 HERE = Path(__file__).parent
@@ -84,7 +85,7 @@ def run_ghz(data: Path, port: int, size: str, concurrency: int, duration: float)
 
 
 def bench_mode(
-    mode: str, data: Path, concurrencies: list[int], duration: float
+    mode: str, data: Path, sizes: list[str], concurrencies: list[int], duration: float
 ) -> dict[str, dict[str, Any]]:
     port = free_port()
     command = pinned(SERVER_CPU, [sys.executable, str(HERE / "e2e_servers.py"), mode, str(port)])
@@ -92,7 +93,7 @@ def bench_mode(
     try:
         wait_for_port(port)
         results = {}
-        for size in SIZES:
+        for size in sizes:
             run_ghz(data, port, size, 4, 1.0)  # warm up
             for concurrency in concurrencies:
                 results[f"{size} c={concurrency}"] = run_ghz(
@@ -108,9 +109,15 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--duration", type=float, default=5.0, help="seconds per measure")
     parser.add_argument("--concurrency", type=int, nargs="+", default=[1, 16, 64])
-    parser.add_argument("--modes", nargs="+", default=list(MODES), choices=MODES)
+    parser.add_argument("--sizes", nargs="+", default=list(SIZES), choices=SIZES)
+    parser.add_argument(
+        "--modes", nargs="+", default=list(MODES), help="also fastgrpc3-deps-N-KIND"
+    )
     parser.add_argument("--out", type=Path, help="write the results as JSON")
     args = parser.parse_args()
+    for mode in args.modes:
+        if not is_mode(mode):
+            parser.error(f"unknown mode {mode}")
 
     with tempfile.TemporaryDirectory() as directory:
         results: dict[str, dict[str, dict[str, Any]]] = {}
@@ -120,7 +127,7 @@ def main() -> None:
                 prepare = [sys.executable, str(HERE / "e2e_servers.py"), mode, "--prepare"]
                 subprocess.run([*prepare, str(data)], check=True)
             print(f"benchmarking {mode}...", file=sys.stderr)
-            results[mode] = bench_mode(mode, data, args.concurrency, args.duration)
+            results[mode] = bench_mode(mode, data, args.sizes, args.concurrency, args.duration)
 
     for measure in ("rps", "p50 ms", "p99 ms"):
         rows = {

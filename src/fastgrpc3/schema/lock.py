@@ -16,6 +16,7 @@ name become reserved, so they are never reused::
     status = 2
 """
 
+import dataclasses
 import json
 import tomllib
 from collections.abc import Collection, Sequence
@@ -117,6 +118,8 @@ class Change:
     message: str
     field: str = ""
     number: int = 0
+    #: An added field numbered by fastgrpc3 (no `field(n)`, not in the lock yet).
+    automatic: bool = dataclasses.field(default=False, compare=False)
 
     def __str__(self) -> str:
         if self.kind == "message_removed":
@@ -202,7 +205,7 @@ def assign_numbers(
             candidate += 1
         take(name, candidate, "new")
         taken.add(candidate)
-        changes.append(Change("added", message, name, candidate))
+        changes.append(Change("added", message, name, candidate, automatic=True))
 
     # A removed or renumbered field leaves its number reserved for good.
     for name, number in previous.fields.items():

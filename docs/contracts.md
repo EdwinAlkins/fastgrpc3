@@ -74,7 +74,16 @@ fastgrpc3 check myapp.main:app    # in CI: fail when proto.lock is out of date
 The server reads the lock when it is given one, `GrpcApp(..., lock_file="proto.lock")`,
 and logs a warning for any field it has to number at startup; `unlocked="error"` refuses
 to start instead. Without a lock, numbers follow the declaration order, as in fastgrpc2:
-inserting a field then changes the wire.
+inserting a field then changes the wire, so the server warns at startup about every field
+numbered that way (give it `field(n)`, or use a lock).
+
+`fastgrpc3 breaking` compares the contract with an earlier one and lists what would break
+existing peers: a field removed without reserving its number, a type or cardinality
+changed, a method removed… (see [Command line](cli.md#breaking)). In CI:
+
+```bash
+fastgrpc3 breaking myapp.main:app --against origin/main
+```
 
 Numbers go from 1 to 2²⁹−1, except 19000–19999 (reserved by protobuf).
 

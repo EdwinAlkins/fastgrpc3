@@ -337,12 +337,19 @@ class GrpcApp:
             for model in registered_details():
                 registry.add_model(model)
         schema = Schema.from_registry(registry, lock, self.unlocked)
-        invented = [str(c) for c in schema.resolved.changes if c.kind == "added"]
-        if invented and lock is not None:
+        assigned = ", ".join(str(c) for c in schema.resolved.changes if c.automatic)
+        if assigned and lock is None:
+            # Numbered by declaration order, pinned nowhere: reordering fields breaks peers.
+            logger.warning(
+                "field numbers assigned at startup, from declaration order: %s "
+                "(give them field(n), or pin them with lock_file= and `fastgrpc3 lock`)",
+                assigned,
+            )
+        elif assigned:
             logger.warning(
                 "field numbers not in %s, assigned at startup: %s (run `fastgrpc3 lock`)",
                 self.lock_file,
-                ", ".join(invented),
+                assigned,
             )
         return schema
 

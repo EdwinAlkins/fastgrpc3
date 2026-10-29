@@ -23,7 +23,7 @@ from fastgrpc3 import (
     register_detail,
 )
 from fastgrpc3.testing import TestClient
-from fastgrpc3.types import AnyMessage
+from fastgrpc3.types import AnyMessage, field
 
 
 class Req(BaseModel):
@@ -295,6 +295,34 @@ async def test_requests_and_responses_without_validation() -> None:
                 assert raised.value.message == "invalid response payload"
             else:
                 assert (await trusting.echo(Positive.model_construct(n=-1))).n == -11
+
+
+async def test_numbers_assigned_without_a_lock_are_reported(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    class Numbered(BaseModel):
+        a: int = field(1, default=0)
+
+    class Unnumbered(BaseModel):
+        a: int = 0
+        b: str = ""
+
+    for model, expected in ((Numbered, []), (Unnumbered, ["Unnumbered.a", "Unnumbered.b"])):
+        service = GrpcService("Warn", package="warn.v1")
+
+        async def Echo(req: model) -> model:  # type: ignore[valid-type]
+            return req
+
+        service.unary()(Echo)
+        app = GrpcApp(tls=Insecure())
+        app.add_service(service)
+        caplog.clear()
+        with caplog.at_level(logging.WARNING, logger="fastgrpc3"):
+            async with TestClient(app):
+                pass
+        warnings = [r.getMessage() for r in caplog.records if "declaration order" in r.message]
+        assert [name for name in expected if any(name in w for w in warnings)] == expected
+        assert bool(warnings) == bool(expected)
 
 
 async def test_lifespan_wraps_the_server() -> None:

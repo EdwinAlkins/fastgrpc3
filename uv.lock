@@ -129,7 +129,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "grpcio", specifier = ">=1.75.1" },
-    { name = "protoruf", specifier = ">=0.4.0" },
+    { name = "protoruf", specifier = ">=0.5.0" },
     { name = "pydantic", specifier = ">=2.11" },
 ]
 
@@ -414,25 +414,25 @@ wheels = [
 
 [[package]]
 name = "protoruf"
-version = "0.4.0"
+version = "0.5.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/22/07/3ecb6fbef00a123d062fa68bb6a77fff1c8669a1c0dac6b5bf002988811d/protoruf-0.4.0.tar.gz", hash = "sha256:493449a5bdc33102b3704266ed4b6a35fa918dbb354374f4c186b5cfd623dbb8", size = 1377518, upload-time = "2026-10-29T08:57:09.616Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a9/f0/4a1048ef12920d71f4f383a515f6bfae732c775645a897bb91d48b8b6d1e/protoruf-0.5.0.tar.gz", hash = "sha256:25e926543849c22c53087a0aebf61f76246264112423a7550353b899b4f09b52", size = 1388674, upload-time = "2026-10-29T13:18:45.091Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/65/ce/9f205e41dc769934834d7793d40bda5702917fc358d7fdb8581628dd03dc/protoruf-0.4.0-cp312-cp312-macosx_10_12_x86_64.whl", hash = "sha256:3588a9b55b87041b9fcc76b8f0841a834a9b35dd92b7482d5f7cad45c0989468", size = 1161528, upload-time = "2026-10-29T08:56:48.052Z" },
-    { url = "https://files.pythonhosted.org/packages/cc/28/b918841744a078619ff4464c819ae6b4ba76904a1dfbf9253dca5ef2856e/protoruf-0.4.0-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:b308000b51ba7a50f3431701bc1671302a549aa10447aa7adb3e8603944b447a", size = 1093502, upload-time = "2026-10-29T08:56:50.05Z" },
-    { url = "https://files.pythonhosted.org/packages/06/0e/b46083176d7daba846ced6f51d03bccb142134fc332fc2b12ba2c0960737/protoruf-0.4.0-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:99b34c35f3d086f8100f6516612736d54782fc93e90d052f82b0fb0f9a54146d", size = 1189054, upload-time = "2026-10-29T08:56:52.044Z" },
-    { url = "https://files.pythonhosted.org/packages/ac/00/4d7468df005b5af52713b99d8eae0b5d22473812af11c2b1f94349d1fa2f/protoruf-0.4.0-cp312-cp312-win_amd64.whl", hash = "sha256:191096f6c6d7eeb2f2370b19ed62ca64418de1f7a8b0625e2d478c824a50d376", size = 1184313, upload-time = "2026-10-29T08:56:53.806Z" },
-    { url = "https://files.pythonhosted.org/packages/2d/1f/e810618e776202e58740171d374420fc4bfdfa86754550368bfee593829a/protoruf-0.4.0-cp313-cp313-macosx_10_12_x86_64.whl", hash = "sha256:222f4138566da3702b6128b77b4527e374d708d81880b37e576b824ee29fcc93", size = 1161543, upload-time = "2026-10-29T08:56:55.826Z" },
-    { url = "https://files.pythonhosted.org/packages/ad/cd/a63c450062ed16e5edb0e7ba0701607ad99227e2e75a5f7e77a7c9602c9e/protoruf-0.4.0-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:2cd5daf9724e3694eba46f665451bb4afabede4d97c9d468e1d90df5768631ab", size = 1093418, upload-time = "2026-10-29T08:56:57.589Z" },
-    { url = "https://files.pythonhosted.org/packages/74/b7/71fcb40e2efd9c5e4539ceb23b867f5d1f87dbf27d520efdb5d0d978d159/protoruf-0.4.0-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:9ca76d52f3136a298c89dcfdb91cedb7d3f6e29d8865b9d4ba788dd55bd1ec61", size = 1189011, upload-time = "2026-10-29T08:56:59.386Z" },
-    { url = "https://files.pythonhosted.org/packages/4a/91/030bda5cd23723da53db58f6da2a217c7b7a83b7688ae2481fc00409be2b/protoruf-0.4.0-cp313-cp313-win_amd64.whl", hash = "sha256:e158b902d751db421c94bc2131f20dfb98a6fd2c8f671d4049651d79f9640ac5", size = 1184325, upload-time = "2026-10-29T08:57:01.147Z" },
-    { url = "https://files.pythonhosted.org/packages/71/25/07d0b10a1d61f4d9528c80ba4462e82775ad6cbfa224b2997cc8ae754720/protoruf-0.4.0-cp314-cp314-macosx_10_12_x86_64.whl", hash = "sha256:7fdd3122cd2e99c2f6d8d80f7324a3e843c39e76eff42ef8439c72a78a1605b6", size = 1161535, upload-time = "2026-10-29T08:57:02.819Z" },
-    { url = "https://files.pythonhosted.org/packages/1f/9a/7e370a9cea8662dead80f04a816d7f0216ae6f8b3144b401ec71d06000ca/protoruf-0.4.0-cp314-cp314-macosx_11_0_arm64.whl", hash = "sha256:41cfa737999865965e61f438695455585b8a60b893dcdd57e22bd6556a6a61ad", size = 1093236, upload-time = "2026-10-29T08:57:04.446Z" },
-    { url = "https://files.pythonhosted.org/packages/90/6e/b6071fa726fedbec78f2554dc457809b44799a17c6f741f5d789e8a0f604/protoruf-0.4.0-cp314-cp314-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:84a58047d871b423bb4c4081e838c1232fa2e146fa4f4f8c1a6320069ba2cf92", size = 1188820, upload-time = "2026-10-29T08:57:06.06Z" },
-    { url = "https://files.pythonhosted.org/packages/19/6f/2b168ad2670cc9eb50eb3bc5919c7146fad5566a7754a33ecc6d1c4272cb/protoruf-0.4.0-cp314-cp314-win_amd64.whl", hash = "sha256:fd3b58dc380cf8718cf1a07439a3ad1c6225298f4b5be4e039161032ee2d8145", size = 1183715, upload-time = "2026-10-29T08:57:07.662Z" },
+    { url = "https://files.pythonhosted.org/packages/76/94/2209f7df5688c2cc01bc0852a13c41e0f3c1aa1189f45d1caff9031f84ec/protoruf-0.5.0-cp312-cp312-macosx_10_12_x86_64.whl", hash = "sha256:fbc1ce6a6a3ce932b854f87e08a36da0527eb9770604018d39cb732e019b0493", size = 1172469, upload-time = "2026-10-29T13:18:23.903Z" },
+    { url = "https://files.pythonhosted.org/packages/e5/04/59e264e2ae75878ae120eaa8a240a7d8b172e22626a122dd9a231f6b8aa7/protoruf-0.5.0-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:415db15503c65f4142d750cd9b95c95dceed6773b519c9f84720e9c75e4dd1f9", size = 1104681, upload-time = "2026-10-29T13:18:25.614Z" },
+    { url = "https://files.pythonhosted.org/packages/06/be/3b3203a73ab563ef771f007f35ba42119607ad4f297a1a77ea8934b3a6a4/protoruf-0.5.0-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:dbbfdb47a9bad42fd349498d7a68d37e3f36f1e01a4f7bb6a6c14a11daea9e11", size = 1201309, upload-time = "2026-10-29T13:18:27.222Z" },
+    { url = "https://files.pythonhosted.org/packages/f9/9c/1c848ef7260149aeb3fe3d4a348ae67b26474c3f008f4eaddf2797273caa/protoruf-0.5.0-cp312-cp312-win_amd64.whl", hash = "sha256:742f5c58eaba69a7bef1bca488ab4c1bb329263a13ac69fd732ad0dc3cf27f78", size = 1198288, upload-time = "2026-10-29T13:18:29.012Z" },
+    { url = "https://files.pythonhosted.org/packages/2a/cd/7dc71a1a9355483a05cb943799d11bdccf37fc41415ef6f086869c509851/protoruf-0.5.0-cp313-cp313-macosx_10_12_x86_64.whl", hash = "sha256:94adb89ab5654dc7b6596a29e64a07024da9e480b35cc4eb1af6abf308a2551d", size = 1172654, upload-time = "2026-10-29T13:18:30.831Z" },
+    { url = "https://files.pythonhosted.org/packages/2d/23/2e988968bd3f8e75fd6a20a85d2b41716834cb398a97b448837670fb42bf/protoruf-0.5.0-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:c926fba728e52c021229e199102f4802bdf577d3aa3e6b10041fdc53d65f29f5", size = 1104749, upload-time = "2026-10-29T13:18:32.907Z" },
+    { url = "https://files.pythonhosted.org/packages/f8/b2/feb36d32076203effa891df435e0b30ae3b0a3a12cf1fbcc4a1144de5586/protoruf-0.5.0-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:71ca86594275ce4d9f7d762b8ea2475db5916b4de68207f9c7cad69fd927109c", size = 1201536, upload-time = "2026-10-29T13:18:34.823Z" },
+    { url = "https://files.pythonhosted.org/packages/67/3f/2bd7698543c3812c7325541b61162f17319fcc67f9b719b252f4d3681a78/protoruf-0.5.0-cp313-cp313-win_amd64.whl", hash = "sha256:78c9c895278c6f8931b353f866611c5b4fa0b7860d1fc08d1db993ed23443380", size = 1198238, upload-time = "2026-10-29T13:18:36.877Z" },
+    { url = "https://files.pythonhosted.org/packages/1a/1c/0e6a5b315fd9c2f2db2372887e728915ad239742ffaff847ecb39ea8e5e9/protoruf-0.5.0-cp314-cp314-macosx_10_12_x86_64.whl", hash = "sha256:3f7cc0d79f4822fe5b11f2c01845b3a4e3a993d6c6fcabac445e6ef1e778bffc", size = 1172733, upload-time = "2026-10-29T13:18:38.523Z" },
+    { url = "https://files.pythonhosted.org/packages/6e/74/fc97f856747572b5510f300620632eb025fe8eb55e76b352bb0f294d9625/protoruf-0.5.0-cp314-cp314-macosx_11_0_arm64.whl", hash = "sha256:9d1a4844fc2c8dc3c89892ac873ec6feb5630dc44f7b5e40fb3a72d9da9e79a0", size = 1104519, upload-time = "2026-10-29T13:18:40.084Z" },
+    { url = "https://files.pythonhosted.org/packages/7e/64/c68962d35a2e32fcabf18b94d6b73b652ecb257df432a8607058270a52d0/protoruf-0.5.0-cp314-cp314-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:fe14922915e5a50a166ba7cec76a3144dce9769f5f414b11e5ddbea0ae100691", size = 1201094, upload-time = "2026-10-29T13:18:41.693Z" },
+    { url = "https://files.pythonhosted.org/packages/74/bd/2876772f81d12562130e47b0a3997c688ed3d5236b164be64de98449569a/protoruf-0.5.0-cp314-cp314-win_amd64.whl", hash = "sha256:f5d702ebc279d0333f0e915570ce7e3df8da23a2536718f5007b6a11e95ab5ce", size = 1198034, upload-time = "2026-10-29T13:18:43.495Z" },
 ]
 
 [[package]]

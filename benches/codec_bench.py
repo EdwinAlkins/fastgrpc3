@@ -4,7 +4,7 @@
 
 Compared, for each message size:
 
-- fastgrpc3: `MessageCodec` (decode validates), and protoruf's `NativeCodec` in construct mode
+- fastgrpc3: `MessageCodec` (decode validates), and protoruf's `Codec` in construct mode
   (no validation) to show what an unvalidated path costs;
 - fastgrpc2 0.5.0: its own codec (protobuf messages built field by field in Python);
 - upb (`google.protobuf`): raw parse / serialize, and with the conversion to and from the
@@ -23,7 +23,7 @@ from contract import SIZES, make_models, sample
 from environment import environment, markdown_table
 from fastgrpc2.core import codec as fastgrpc2_codec
 from google.protobuf import descriptor_pb2, descriptor_pool, json_format, message_factory
-from protoruf._protoruf import NativeCodec
+from protoruf import Codec
 
 from fastgrpc3 import Schema, SchemaRegistry
 
@@ -50,7 +50,7 @@ def fastgrpc3_rows() -> dict[str, dict[str, float]]:
         codec = schema.codec(model)
         data = codec.encode(message)
         assert codec.decode(data) == message
-        construct = NativeCodec(schema.descriptor, codec.full_name, model, mode="construct")
+        construct = Codec(schema.descriptor, codec.full_name, model, mode="construct")
         rows[size] = {
             "bytes": len(data),
             "fastgrpc3 encode": per_call(partial(codec.encode, message)),

@@ -1,19 +1,18 @@
-"""`MessageCodec`: protobuf bytes <-> a Pydantic model, through protoruf's `NativeCodec`.
+"""`MessageCodec`: protobuf bytes <-> a Pydantic model, through protoruf's `Codec`.
 
-Most models go straight through the Rust codec. A model whose tree holds a value the Rust
-codec does not know (JSON carrier, `datetime.date`, `Enum` numbered by `proto_enum`, field
-alias, proto name other than the Python one) takes a slower path: the codec works on dicts,
-converted here field by field.
+The Rust codec handles everything the contract maps to proto, field names that differ
+from the proto ones and aliases included. Only a model whose tree holds a value it does not
+know (a JSON carrier, an `Enum` numbered by `proto_enum`) takes a slower path: the codec
+works on dicts, converted here field by field.
 """
 
-import datetime
 import enum
 import json
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from protoruf._protoruf import NativeCodec
+from protoruf import Codec
 from pydantic import BaseModel
 
 from fastgrpc3.schema.annotations import FieldSpec, TypeRef
@@ -26,12 +25,11 @@ Convert = Callable[[Any], Any]
 
 @dataclass(frozen=True, slots=True)
 class _Plan:
-    """Fields of one message that need converting: `(name, to wire, from wire)`, JSON
-    carriers, and `(Python name, proto name)` of renamed fields."""
+    """Fields of one message that need converting: `(name, to wire, from wire)`, and
+    JSON carriers."""
 
     converters: tuple[tuple[str, Convert, Convert], ...]
     carriers: frozenset[str]
-    renames: tuple[tuple[str, str], ...]
 
 
 _Plans = dict[type[BaseModel], _Plan]
@@ -56,29 +54,26 @@ class MessageCodec[M: BaseModel]:
         self.model = model
         #: Full proto name of the message.
         self.full_name = schema.messages[model].full_name
-        self._native = NativeCodec(
+        self._native = Codec(
             descriptor,
             self.full_name,
             model,
+            field_names=_field_names(schema),
             unknown_enum=unknown_enum,
             naive_datetime=naive_datetime,
         )
         self._plans = _build_plans(schema)
-        reachable = _reachable(schema, model)
-        self._direct_encode = all(cls not in self._plans for cls in reachable)
-        self._direct_decode = self._direct_encode and not any(
-            spec.alias for cls in reachable for spec in schema.messages[cls].fields
-        )
+        self._direct = all(cls not in self._plans for cls in _reachable(schema, model))
 
     def encode(self, message: M) -> bytes:
         """Serialize a model instance to protobuf bytes."""
-        if self._direct_encode:
+        if self._direct:
             return self._native.encode(message)
         return self._native.encode(_to_wire(self._plans, message))
 
     def decode(self, data: bytes) -> M:
         """Parse protobuf bytes into a validated model instance."""
-        if self._direct_decode:
+        if self._direct:
             decoded: M = self._native.decode(data)
             return decoded
         values = _from_wire(self._plans, self.model, self._native.decode_dict(data))
@@ -97,8 +92,6 @@ def _to_wire(plans: _Plans, message: BaseModel) -> dict[str, Any]:
         dumped = message.model_dump(mode="json", include=set(plan.carriers))
         for name in plan.carriers:
             values[name] = json.dumps(dumped[name], separators=(",", ":"))
-    for name, wire_name in plan.renames:
-        values[wire_name] = values.pop(name)
     return values
 
 
@@ -106,9 +99,6 @@ def _from_wire(plans: _Plans, model: type[BaseModel], values: dict[str, Any]) ->
     plan = plans.get(model)
     if plan is None:
         return values
-    for name, wire_name in plan.renames:
-        if wire_name in values:
-            values[name] = values.pop(wire_name)
     for name, _, from_wire in plan.converters:
         if values.get(name) is not None:
             values[name] = from_wire(values[name])
@@ -118,6 +108,16 @@ def _from_wire(plans: _Plans, model: type[BaseModel], values: dict[str, Any]) ->
         if text:
             values[name] = json.loads(text)
     return values
+
+
+def _field_names(schema: ResolvedSchema) -> dict[str, dict[int, str]]:
+    """Python names of the fields whose proto name differs, for protoruf."""
+    names: dict[str, dict[int, str]] = {}
+    for spec in schema.messages.values():
+        renamed = {f.number: f.name for f in spec.fields if f.proto_name and f.number}
+        if renamed:
+            names[spec.full_name] = renamed
+    return names
 
 
 def _build_plans(schema: ResolvedSchema) -> _Plans:
@@ -134,8 +134,7 @@ def _build_plans(schema: ResolvedSchema) -> _Plans:
             if pair is not None:
                 converters.append((field_spec.name, *_lift(field_spec, *pair)))
         carriers = frozenset(f.name for f in spec.fields if f.carrier)
-        renames = tuple((f.name, f.wire_name) for f in spec.fields if f.proto_name)
-        plans[model] = _Plan(tuple(converters), carriers, renames)
+        plans[model] = _Plan(tuple(converters), carriers)
     return plans
 
 
@@ -144,7 +143,7 @@ def _needs_conversion(schema: ResolvedSchema) -> set[type[BaseModel]]:
     needs = {
         model
         for model, spec in schema.messages.items()
-        if any(f.carrier or f.proto_name or _is_converted_leaf(f.value) for f in spec.fields)
+        if any(f.carrier or _is_converted_leaf(f.value) for f in spec.fields)
     }
     changed = True
     while changed:  # fixed point, for recursive models
@@ -159,16 +158,12 @@ def _needs_conversion(schema: ResolvedSchema) -> set[type[BaseModel]]:
 
 
 def _is_converted_leaf(ref: TypeRef) -> bool:
-    if ref.kind == "well_known":
-        return ref.py is datetime.date
     return ref.kind == "enum" and hasattr(ref.py, "__proto_numbers__")
 
 
 def _value_converters(
     ref: TypeRef, needs: set[type[BaseModel]], plans: _Plans
 ) -> tuple[Convert, Convert] | None:
-    if ref.kind == "well_known" and ref.py is datetime.date:
-        return _date_to_wire, _date_from_wire
     if ref.kind == "enum" and hasattr(ref.py, "__proto_numbers__"):
         return _enum_converters(ref.py)
     if ref.kind == "message" and ref.py in needs:
@@ -194,16 +189,6 @@ def _lift(spec: FieldSpec, to_wire: Convert, from_wire: Convert) -> tuple[Conver
             lambda values: {k: from_wire(v) for k, v in values.items()},
         )
     return to_wire, from_wire
-
-
-def _date_to_wire(value: datetime.date) -> dict[str, int]:
-    return {"year": value.year, "month": value.month, "day": value.day}
-
-
-def _date_from_wire(value: dict[str, int] | datetime.date) -> datetime.date:
-    if isinstance(value, datetime.date):  # protoruf >= 0.5 decodes dates itself
-        return value
-    return datetime.date(value["year"], value["month"], value["day"])
 
 
 def _enum_converters(cls: type[enum.Enum]) -> tuple[Convert, Convert]:

@@ -7,7 +7,7 @@ import uuid
 from typing import Any
 
 import pytest
-from protoruf._protoruf import NativeCodec
+from protoruf import Codec
 from pydantic import BaseModel, Field, ValidationError
 
 from fastgrpc3.schema import MethodDef, Schema, SchemaRegistry, ServiceDef
@@ -259,5 +259,5 @@ def test_well_known_markers_and_proto_names() -> None:
     )
     assert codec.decode(codec.encode(message)) == message
     assert codec.decode(codec.encode(Trip())) == Trip()
-    wire = NativeCodec(schema.descriptor, "shop.v1.Trip").decode_dict(codec.encode(message))
+    wire = Codec(schema.descriptor, "shop.v1.Trip").decode_dict(codec.encode(message))
     assert wire["from"] == "Paris"

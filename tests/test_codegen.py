@@ -12,7 +12,7 @@ from types import ModuleType
 
 import protoruf
 import pytest
-from protoruf._protoruf import NativeCodec
+from protoruf import Codec
 
 from fastgrpc3 import Schema, SchemaError, SchemaRegistry
 from fastgrpc3.codegen.generate import CodegenError, check, generate, write
@@ -247,7 +247,7 @@ def test_generated_models_bind_to_the_embedded_descriptor(package: tuple[str, Pa
     encoded = codec.encode(order)
     assert codec.decode(encoded) == order
     # Plain protobuf on the wire, with the proto field names.
-    wire = NativeCodec(descriptor, "shop.v1.Order").decode_dict(encoded)
+    wire = Codec(descriptor, "shop.v1.Order").decode_dict(encoded)
     assert (wire["from"], wire["json"], wire["card"]["number"]) == ("Paris", b"{}", "4")
 
 

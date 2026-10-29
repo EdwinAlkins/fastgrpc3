@@ -200,7 +200,9 @@ def _date_to_wire(value: datetime.date) -> dict[str, int]:
     return {"year": value.year, "month": value.month, "day": value.day}
 
 
-def _date_from_wire(value: dict[str, int]) -> datetime.date:
+def _date_from_wire(value: dict[str, int] | datetime.date) -> datetime.date:
+    if isinstance(value, datetime.date):  # protoruf >= 0.5 decodes dates itself
+        return value
     return datetime.date(value["year"], value["month"], value["day"])
 
 

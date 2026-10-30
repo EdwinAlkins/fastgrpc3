@@ -1,6 +1,6 @@
 [project]
 name = "fastgrpc3"
-version = "0.1.0"
+version = "0.1.1"
 description = "FastAPI-like gRPC framework for Python: contracts from .proto files or Pydantic models, powered by protoruf (Rust)"
 readme = "README.md"
 license = "MIT"
@@ -9,8 +9,9 @@ authors = [
     { name = "William Nauroy", email = "william.nauroy@gmail.com" }
 ]
 requires-python = ">=3.12"
+keywords = ["grpc", "protobuf", "pydantic", "asyncio", "fastapi", "rpc", "rust", "tonic"]
 classifiers = [
-    "Development Status :: 1 - Planning",
+    "Development Status :: 4 - Beta",
     "Framework :: AsyncIO",
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
@@ -27,6 +28,13 @@ dependencies = [
     # `model_validate(..., by_name=True)` appeared in 2.11.
     "pydantic>=2.11",
 ]
+
+[project.urls]
+Homepage = "https://github.com/EdwinAlkins/fastgrpc3"
+Documentation = "https://edwinalkins.github.io/fastgrpc3/"
+Repository = "https://github.com/EdwinAlkins/fastgrpc3"
+Changelog = "https://github.com/EdwinAlkins/fastgrpc3/blob/main/CHANGELOG.md"
+Issues = "https://github.com/EdwinAlkins/fastgrpc3/issues"
 
 [project.scripts]
 fastgrpc3 = "fastgrpc3.cli:main"

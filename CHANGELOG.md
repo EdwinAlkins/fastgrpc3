@@ -5,6 +5,16 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/) (0.x: the API may change between minor
 versions).
 
+## [0.1.1] - 2026-10-30
+
+### Documentation
+
+- The documentation is online: https://edwinalkins.github.io/fastgrpc3/ (published from `docs/` by GitHub Pages).
+- New README: what fastgrpc3 is for, the performance against `grpc.aio` and fastgrpc2,
+  links that work on PyPI; a rewritten performance page.
+- Package metadata: project URLs (documentation, repository, changelog, issues), keywords,
+  "Beta" status.
+
 ## [0.1.0] - 2026-10-30
 
 First release: a FastAPI-like gRPC framework for Python on the protoruf codec.
@@ -27,4 +37,5 @@ First release: a FastAPI-like gRPC framework for Python on the protoruf codec.
 - Two transports: `grpc.aio` (default) and tonic, a Rust server (extra `fastgrpc3[tonic]`,
   experimental): `GrpcApp(transport=...)`, `FASTGRPC_TRANSPORT`, `available_transports()`.
 
+[0.1.1]: https://github.com/EdwinAlkins/fastgrpc3/releases/tag/v0.1.1
 [0.1.0]: https://github.com/EdwinAlkins/fastgrpc3/releases/tag/v0.1.0

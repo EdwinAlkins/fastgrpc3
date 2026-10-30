@@ -4,7 +4,8 @@
 
 [![PyPI](https://img.shields.io/pypi/v/fastgrpc3)](https://pypi.org/project/fastgrpc3/)
 [![Python](https://img.shields.io/pypi/pyversions/fastgrpc3)](https://pypi.org/project/fastgrpc3/)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](https://github.com/EdwinAlkins/fastgrpc3/blob/main/LICENSE)
+[![Docs](https://img.shields.io/badge/docs-online-indigo)](https://edwinalkins.github.io/fastgrpc3/)
 
 Write gRPC services as plain `async` functions with Pydantic models. fastgrpc3 gives you
 dependency injection, typed clients, rich errors, health checking, reflection and
@@ -76,7 +77,7 @@ One CPU core, unary calls, 64 concurrent clients:
 The tonic transport ([fastgrpc3-transport](https://github.com/EdwinAlkins/fastgrpc3-transport))
 runs HTTP/2, gRPC framing, TLS and flow control in Rust and hands the calls to asyncio by
 batches; wheels for Linux, macOS and Windows. Medium and large messages, latency, several
-cores, dependencies, codec and method: [docs/performance.md](docs/performance.md).
+cores, dependencies, codec and method: [Performance](https://edwinalkins.github.io/fastgrpc3/performance/).
 
 ## Install
 
@@ -88,7 +89,7 @@ pip install "fastgrpc3[docs]"      # + Swagger UI and the JSON gateway
 
 Python 3.12, 3.13 and 3.14. fastgrpc3 is at version 0.1: the API may still change.
 A complete example, a bookstore service with its client and tests, is in
-[`examples/`](examples/README.md).
+[`examples/`](https://github.com/EdwinAlkins/fastgrpc3/tree/main/examples).
 
 ## Server and client
 
@@ -228,8 +229,11 @@ Each service module also holds the contract (`Orders`, to serve with
 
 ## Documentation
 
-The guide and the reference live in [`docs/`](docs/index.md) (MkDocs). To build the site
-into `site/`, or to serve it locally with live reload:
+**https://edwinalkins.github.io/fastgrpc3/** — getting started, contracts (code first and proto first), server, client,
+testing, the type mapping, the command line and performance.
+
+The sources live in [`docs/`](https://github.com/EdwinAlkins/fastgrpc3/tree/main/docs) (MkDocs). To build the site into
+`site/`, or to serve it locally with live reload:
 
 ```bash
 uv run --project docs mkdocs build --strict
@@ -248,4 +252,4 @@ uv run mypy src tests       # type checking
 
 ## License
 
-MIT, see [LICENSE](LICENSE).
+MIT, see [LICENSE](https://github.com/EdwinAlkins/fastgrpc3/blob/main/LICENSE).

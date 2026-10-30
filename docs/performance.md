@@ -47,15 +47,24 @@ To use more than one core, run several processes: `fastgrpc3 run app:app --worke
 ### On tonic
 
 The same fastgrpc3 server (validation included) on each [transport](server.md#transport),
-one core, in one session, lowest of two passes (requests per second):
+one core, median of three passes in alternating order (requests per second, and server CPU
+per call):
 
-| | small c=1 | small c=16 | small c=64 | medium c=1 | medium c=16 | medium c=64 |
-|-|------:|------:|------:|------:|------:|------:|
-| `grpc.aio` | 4,034 | 4,273 | 4,257 | 3,523 | 3,914 | 3,922 |
-| tonic | 7,941 | 34,476 | 44,324 | 5,738 | 23,812 | 29,896 |
+| | small c=1 | small c=16 | small c=64 | medium c=1 | medium c=16 | medium c=64 | large c=64 |
+|-|------:|------:|------:|------:|------:|------:|------:|
+| `grpc.aio` | 4,163 | 4,566 | 4,430 | 3,581 | 4,168 | 4,132 | 954 |
+| tonic | 8,799 | 46,847 | 62,240 | 6,380 | 31,618 | 40,943 | 1,176 |
+| CPU per call, `grpc.aio` | 231 µs | 219 µs | 226 µs | 254 µs | 240 µs | 242 µs | 1,047 µs |
+| CPU per call, tonic | 46 µs | 20 µs | 13 µs | 64 µs | 30 µs | 22 µs | 851 µs |
 
-tonic is about 2× faster for one client at a time, and 6 to 10× under concurrency: the
-HTTP/2 and gRPC work is done in Rust, and the asyncio loop takes calls by batches.
+tonic is about 2× faster for one client at a time and 7 to 14× under concurrency (the
+load generator caps it near 62,000 calls/s: the CPU per call, 10 to 17× lower, is the
+fairer measure); p99 at c=64 drops from 16 to 2 ms on small messages. The HTTP/2 and gRPC
+work is done in Rust, and the asyncio loop takes calls and hands answers back by batches.
+On large messages, building and validating the Python objects dominates: 1.0–1.3×.
+Each dependency adds about 0.4 µs per call; the first middleware 1.8 µs (the call leaves
+the fast path), the next ones about 0.2 µs. Details and
+method: `bench/results/2026-10-30-lot9.md` in the fastgrpc3-transport repository.
 
 ## Dependencies
 

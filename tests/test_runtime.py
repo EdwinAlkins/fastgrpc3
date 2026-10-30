@@ -3,6 +3,7 @@
 import asyncio
 import contextlib
 import logging
+import sys
 from collections.abc import AsyncIterator
 
 import grpc
@@ -496,6 +497,7 @@ async def test_the_server_validates_requests() -> None:
     )
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="no signal handlers on Windows' loop")
 async def test_run_stops_on_sigterm() -> None:
     import asyncio
     import os

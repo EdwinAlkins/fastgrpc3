@@ -264,7 +264,8 @@ async def test_blocking_providers_do_not_block_the_loop() -> None:
         deps = tc.client(DepsClient)
         started = time.perf_counter()
         replies = await asyncio.gather(*(deps.get(Req()) for _ in range(4)))
-        assert time.perf_counter() - started < 0.4  # 0.6 s if run one after the other
+        # About 0.15 s; 0.6 s if run one after the other (slow CI runners: 0.45 s seen).
+        assert time.perf_counter() - started < 0.5
         assert [r.text for r in replies] == ["s1"] * 4
         assert events == ["closed"] * 4
 

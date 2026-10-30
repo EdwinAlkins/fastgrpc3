@@ -1,0 +1,65 @@
+name: Release
+
+# On a `v*` tag: the suite on both transports, the sdist and the wheel (pure Python), a
+# clean install of the wheel, then PyPI (trusted publishing, environment `pypi`, which waits
+# for approval) and the GitHub release with the CHANGELOG section. By hand (Actions >
+# Release > Run workflow): the same checks, nothing published.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.14"
+      - name: Tests on both transports
+        run: |
+          uv sync --locked --extra tonic
+          uv run pytest
+      - name: Build
+        run: uv build
+      - name: The wheel installs and imports in a fresh environment
+        run: |
+          uv venv /tmp/clean
+          uv pip install --python /tmp/clean dist/*.whl
+          /tmp/clean/bin/python -c "import fastgrpc3; print(fastgrpc3.__version__)"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write  # trusted publishing
+      contents: write  # the GitHub release
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      - name: The tag matches the version
+        run: |
+          version=$(grep -m1 '^version' pyproject.toml | cut -d'"' -f2)
+          test "v$version" = "$GITHUB_REF_NAME"
+          grep -q "__version__ = \"$version\"" src/fastgrpc3/__init__.py
+      - uses: pypa/gh-action-pypi-publish@release/v1
+      - name: GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # This version's section of the changelog.
+          awk -v v="${GITHUB_REF_NAME#v}" '
+            /^## \[/ { on = index($0, "[" v "]") > 0; next }
+            on' CHANGELOG.md > notes.md
+          gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" \
+            --notes-file notes.md

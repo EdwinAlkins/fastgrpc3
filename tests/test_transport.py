@@ -82,9 +82,9 @@ async def test_an_incompatible_transport_is_reported_at_start(
 ) -> None:
     native = pytest.importorskip("fastgrpc3_transport")
     assert available_transports() == [Transport.GRPC_AIO, Transport.TONIC]
-    monkeypatch.setattr(native, "TRANSPORT_API_VERSION", 2)
+    monkeypatch.setattr(native, "TRANSPORT_API_VERSION", 3)
     monkeypatch.delitem(sys.modules, "fastgrpc3.transport.tonic", raising=False)
-    with pytest.raises(RuntimeError, match="Required transport API: 1\nDetected transport API: 2"):
+    with pytest.raises(RuntimeError, match="Required transport API: 2\nDetected transport API: 3"):
         await app_with(transport="tonic").start()
 
 

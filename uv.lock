@@ -171,7 +171,7 @@ dev = [
 [[package]]
 name = "fastgrpc3-transport"
 version = "0.1.0"
-source = { git = "https://github.com/EdwinAlkins/fastgrpc3-transport#cd1610d4b84b372b6e97191c3ae2ad816c3332e1" }
+source = { git = "https://github.com/EdwinAlkins/fastgrpc3-transport#9c8bdb5ea3fc3e2e07135538b556d2197811d103" }
 
 [[package]]
 name = "grpcio"

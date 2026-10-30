@@ -29,7 +29,7 @@ if TYPE_CHECKING:
     from fastgrpc3_transport import Call
 
 #: The integration contract this module was written for (`fastgrpc3_transport`'s).
-TRANSPORT_API = 1
+TRANSPORT_API = 2
 _detected = getattr(fastgrpc3_transport, "TRANSPORT_API_VERSION", None)
 if _detected != TRANSPORT_API:
     raise RuntimeError(

@@ -5,7 +5,7 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/) (0.x: the API may change between minor
 versions).
 
-## [0.1.0] - Pending
+## [0.1.0] - 2026-10-30
 
 First release: a FastAPI-like gRPC framework for Python on the protoruf codec.
 

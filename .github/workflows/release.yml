@@ -57,9 +57,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # This version's section of the changelog.
-          awk -v v="${GITHUB_REF_NAME#v}" '
-            /^## \[/ { on = index($0, "[" v "]") > 0; next }
-            on' CHANGELOG.md > notes.md
-          gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" \
-            --notes-file notes.md
+          # Written notes for this tag if any, else this version's section of the changelog.
+          # Only the packages: the publish step also leaves its attestations in dist/.
+          notes=".github/release-notes/$GITHUB_REF_NAME.md"
+          if [ ! -f "$notes" ]; then
+            notes=notes.md
+            awk -v v="${GITHUB_REF_NAME#v}" '
+              /^## \[/ { on = index($0, "[" v "]") > 0; next }
+              on' CHANGELOG.md > notes.md
+          fi
+          gh release create "$GITHUB_REF_NAME" dist/*.whl dist/*.tar.gz --title "fastgrpc3 ${GITHUB_REF_NAME#v}" \
+            --notes-file "$notes"

@@ -1,6 +1,6 @@
 [project]
 name = "fastgrpc3"
-version = "0.1.0.dev0"
+version = "0.1.0"
 description = "FastAPI-like gRPC framework for Python: contracts from .proto files or Pydantic models, powered by protoruf (Rust)"
 readme = "README.md"
 license = "MIT"
@@ -53,10 +53,6 @@ dev = [
     "types-grpcio>=1.85.0.20261028",
     "uvicorn>=0.30",
 ]
-
-[tool.uv.sources]
-# Not on PyPI yet (published soon): built from its GitHub repository until then.
-fastgrpc3-transport = { git = "https://github.com/EdwinAlkins/fastgrpc3-transport" }
 
 [build-system]
 requires = ["uv_build>=0.13.4,<0.14.0"]

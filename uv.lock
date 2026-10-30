@@ -114,7 +114,7 @@ wheels = [
 
 [[package]]
 name = "fastgrpc3"
-version = "0.1.0.dev0"
+version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "grpcio" },
@@ -146,7 +146,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "fastgrpc3-transport", marker = "extra == 'tonic'", git = "https://github.com/EdwinAlkins/fastgrpc3-transport" },
+    { name = "fastgrpc3-transport", marker = "extra == 'tonic'", specifier = ">=0.1,<0.2" },
     { name = "grpcio", specifier = ">=1.75.1" },
     { name = "protoruf", specifier = ">=0.5.3" },
     { name = "pydantic", specifier = ">=2.11" },
@@ -171,7 +171,25 @@ dev = [
 [[package]]
 name = "fastgrpc3-transport"
 version = "0.1.0"
-source = { git = "https://github.com/EdwinAlkins/fastgrpc3-transport#eb0366b770774fbcab83aac4e5099ff05f0d6787" }
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/50/39/c7e0c847538fd92654c2de18be27dec1b19cb6ec60c5fa3a7a98b36ea835/fastgrpc3_transport-0.1.0.tar.gz", hash = "sha256:67f5ab28ddbf99d500b7a2c9c652d06a3f524f73e12bedb68209581312166819", size = 83386, upload-time = "2026-10-30T15:05:58.412Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f5/46/15fdb8592dcb54276fb62d1442b9049d7f5d43c41733175c309838833c1c/fastgrpc3_transport-0.1.0-cp312-cp312-macosx_10_12_x86_64.whl", hash = "sha256:a679371e084a605427d67ea53ddc98abe9fff35e15e33797b2a5b50ada9253ac", size = 1714577, upload-time = "2026-10-30T15:05:34.355Z" },
+    { url = "https://files.pythonhosted.org/packages/5e/6d/e047ee96735e5a3859896d34dee64975c626df464ea6e2baf885fc9eb341/fastgrpc3_transport-0.1.0-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:534174ce77442e3effb8800ef279722a8a2379d124a0379f95a47248e225a1eb", size = 1628120, upload-time = "2026-10-30T15:05:35.897Z" },
+    { url = "https://files.pythonhosted.org/packages/98/69/63a7d05bea9ea2f5806765549e55a60898a43a69ef2d7e743321e23f4aed/fastgrpc3_transport-0.1.0-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:268b8af74b18df94743450ce461521873b832813784009193dc107a6b2c63836", size = 1844466, upload-time = "2026-10-30T15:05:37.697Z" },
+    { url = "https://files.pythonhosted.org/packages/ca/49/661bbdceee79d434ae31ddf9c62fb7f9c0c594e25e64a9e03ff3f6bf00b6/fastgrpc3_transport-0.1.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:ccf30163b1e7dee0d7762b5c379bbc7e7c31457857151c853697390c9e09caf9", size = 1896873, upload-time = "2026-10-30T15:05:39.343Z" },
+    { url = "https://files.pythonhosted.org/packages/bf/68/95ab3288438d7fd38ad4ad84368c4a980a6ac59f4f5be7fe7117601b9350/fastgrpc3_transport-0.1.0-cp312-cp312-win_amd64.whl", hash = "sha256:f07624c482d43ec88c356edb3edcf51e7787b68ef134a55f9299634150c16881", size = 1662302, upload-time = "2026-10-30T15:05:40.75Z" },
+    { url = "https://files.pythonhosted.org/packages/ab/47/53e7c147d6e16178650a10fd242825c7d8df867834f4cce0cbb61840f542/fastgrpc3_transport-0.1.0-cp313-cp313-macosx_10_12_x86_64.whl", hash = "sha256:84322d0ab2b640a0f7360052833da389cac73f134b076aa22bfb7d31970c30db", size = 1714447, upload-time = "2026-10-30T15:05:42.732Z" },
+    { url = "https://files.pythonhosted.org/packages/6d/c2/cad8fddb7e8cd9bc5289e6618a922408fdd853569295fcc17aaa2e8491f6/fastgrpc3_transport-0.1.0-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:4a79f410fc7d4a394f2b352c950a733f9524a9ff2e70c9108de3028656cc1cf3", size = 1628116, upload-time = "2026-10-30T15:05:44.26Z" },
+    { url = "https://files.pythonhosted.org/packages/7c/a8/faf76fe8ad154326cc56da2fded3bdea41874b702a2cea25374e2c296025/fastgrpc3_transport-0.1.0-cp313-cp313-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:d9936a431bca22577db96f8dee7a1ab561fd38e1d0bbfc9ca0fd9af0f4a2b154", size = 1844126, upload-time = "2026-10-30T15:05:45.68Z" },
+    { url = "https://files.pythonhosted.org/packages/43/a8/112855010beac061129a2addcd29b659edb6d1ed48d1345b525a1ba8d3bb/fastgrpc3_transport-0.1.0-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:20186b3060eea556624e8e49d06444d22b4829bf339deba03d6c5303e90741d7", size = 1896393, upload-time = "2026-10-30T15:05:47.299Z" },
+    { url = "https://files.pythonhosted.org/packages/81/56/7cfdebc5cf6c855f8762fd99f19936b6e26f5ebf490f7ae52e386f98ab23/fastgrpc3_transport-0.1.0-cp313-cp313-win_amd64.whl", hash = "sha256:f409d61ca08fdb0b423e1f4a8aba8d0b21365c278e8f10a026b014dc7c909834", size = 1662132, upload-time = "2026-10-30T15:05:48.956Z" },
+    { url = "https://files.pythonhosted.org/packages/c3/ba/52988194f040fd7ffce163e999850afa4c08190d73cdc46b8baef7cbb34e/fastgrpc3_transport-0.1.0-cp314-cp314-macosx_10_12_x86_64.whl", hash = "sha256:2f566c620e53fc1682d761f36a26037eae3116f28a43b30ef3a1acea230597d4", size = 1714915, upload-time = "2026-10-30T15:05:50.493Z" },
+    { url = "https://files.pythonhosted.org/packages/6d/be/28d0ce9897e21859800fe935002c61e5d344268c89c383327c1b6d21a209/fastgrpc3_transport-0.1.0-cp314-cp314-macosx_11_0_arm64.whl", hash = "sha256:c6fd76afc2c313d9f41c439dd7a5b86f59db0a049dbe5fd5dde2f86dc36311f7", size = 1627852, upload-time = "2026-10-30T15:05:52.33Z" },
+    { url = "https://files.pythonhosted.org/packages/0e/09/34a4c4d8a12fefa546b6848c62a84dd722efc3ed0072d7d25083fb3170e2/fastgrpc3_transport-0.1.0-cp314-cp314-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:3fe2963e9434ef60988289d5593d89d836633b15abd83c15735323b3e56d32df", size = 1844272, upload-time = "2026-10-30T15:05:53.815Z" },
+    { url = "https://files.pythonhosted.org/packages/28/4a/8015fc7b040fb3b55c999947a26f2497271337d86c688d2c8704e2e5c76e/fastgrpc3_transport-0.1.0-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:78656391cafa70039efb5904d7193999c2d2b9d2e3b6b2b00f05dce89e7b438b", size = 1896931, upload-time = "2026-10-30T15:05:55.25Z" },
+    { url = "https://files.pythonhosted.org/packages/03/36/60e8a8aa78e15d1e9a7f5a9eaf8448a2cbc8dcb90b775a392daee24ac34c/fastgrpc3_transport-0.1.0-cp314-cp314-win_amd64.whl", hash = "sha256:2054c0e8afbb227e22b8fcfdc3b85e17173c6ae2b55974a42717ad71deef4573", size = 1661965, upload-time = "2026-10-30T15:05:56.991Z" },
+]
 
 [[package]]
 name = "grpcio"

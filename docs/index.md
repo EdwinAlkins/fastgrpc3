@@ -6,7 +6,7 @@ by [protoruf](https://github.com/EdwinAlkins/protoruf), straight between protobu
 Pydantic models.
 
 !!! warning "Early development"
-    fastgrpc3 is at version 0.1.0.dev0: the API may still change.
+    fastgrpc3 is at version 0.1: the API may still change.
 
 ## Two ways to write a contract
 
@@ -64,10 +64,10 @@ with its client and tests.
 
 ## Install
 
-fastgrpc3 is not published on PyPI yet. From a checkout of the repository:
-
 ```bash
-uv add --editable ../fastgrpc3     # in your project, path to the checkout
+pip install fastgrpc3                 # or: uv add fastgrpc3
+pip install "fastgrpc3[tonic]"        # with the Rust transport (see Server > Transport)
+pip install "fastgrpc3[docs]"         # with Swagger UI and the JSON gateway
 ```
 
 Python 3.12 or later (tested on 3.12, 3.13 and 3.14). The dependencies are `grpcio`,

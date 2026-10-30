@@ -84,6 +84,11 @@ strict = true
 module = ["fastgrpc3_transport"]
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+# Returns what the extension gives, typed only when fastgrpc3-transport is installed.
+module = ["fastgrpc3.transport.tonic"]
+warn_return_any = false
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"

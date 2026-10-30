@@ -15,6 +15,7 @@ import functools
 import socket
 import sys
 from collections.abc import AsyncIterator
+from typing import TYPE_CHECKING
 
 import fastgrpc3_transport
 
@@ -24,6 +25,9 @@ from fastgrpc3.api.security import MTLS, TLS, Insecure, Security, read_pem
 from fastgrpc3.runtime.dispatch import Invoker
 from fastgrpc3.transport.base import Pairs, RpcFailure
 
+if TYPE_CHECKING:
+    from fastgrpc3_transport import Call
+
 #: The integration contract this module was written for (`fastgrpc3_transport`'s).
 TRANSPORT_API = 1
 _detected = getattr(fastgrpc3_transport, "TRANSPORT_API_VERSION", None)
@@ -32,7 +36,6 @@ if _detected != TRANSPORT_API:
         "Installed fastgrpc3-transport is incompatible with this version of fastgrpc3.\n\n"
         f"Required transport API: {TRANSPORT_API}\nDetected transport API: {_detected}"
     )
-Call = fastgrpc3_transport.Call
 
 __all__ = ["TonicTransport"]
 
@@ -111,7 +114,7 @@ class TonicTransport:
             self._loop.add_reader(fd, self._readable)
         except NotImplementedError:
             self._waker_task = self._loop.create_task(self._read_wake_ups(self._wake))
-        return port
+        return int(port)
 
     async def stop(self, grace: float | None) -> None:
         """Refuse new calls, let those in flight finish for `grace` seconds (the loop keeps
@@ -138,7 +141,7 @@ class TonicTransport:
     async def wait_for_termination(self) -> None:
         await self._stopped.wait()
 
-    async def send(self, call: Call, data: bytes) -> bool:
+    async def send(self, call: "Call", data: bytes) -> bool:
         """One response of a stream; waits while its channel is full. False once the client
         is gone."""
         assert self._loop is not None
@@ -197,7 +200,7 @@ class TonicTransport:
     def _ended(self, call_id: int, task: asyncio.Task[None]) -> None:
         self._running.pop(call_id, None)
 
-    async def _run(self, call: Call, invoker: Invoker, inbox: Inbox | None) -> None:
+    async def _run(self, call: "Call", invoker: Invoker, inbox: Inbox | None) -> None:
         request = call.body if inbox is None else _read(call, inbox)
         try:
             result = await invoker.call(request, _Context(self, call))
@@ -222,7 +225,7 @@ def _tls(security: TLS | MTLS) -> tuple[bytes, bytes, bytes | None, bool]:
     return read_pem(security.cert), read_pem(security.key), ca, isinstance(security, MTLS)
 
 
-async def _read(call: Call, inbox: Inbox) -> AsyncIterator[bytes]:
+async def _read(call: "Call", inbox: Inbox) -> AsyncIterator[bytes]:
     while True:
         message, code = await inbox.get()
         if message is None:
@@ -244,7 +247,7 @@ class _Context:
 
     __slots__ = ("_call", "_transport")
 
-    def __init__(self, transport: TonicTransport, call: Call) -> None:
+    def __init__(self, transport: TonicTransport, call: "Call") -> None:
         self._transport = transport
         self._call = call
 

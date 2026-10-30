@@ -283,6 +283,9 @@ concurrency (see [Performance](performance.md#on-tonic)).
 pip install "fastgrpc3[tonic]"
 ```
 
+It ships wheels for Linux (x86_64, aarch64), macOS (arm64, x86_64) and Windows (x86_64),
+CPython 3.12 to 3.14; on Windows, `--workers` is not available with tonic.
+
 Until it is published on PyPI, install it from GitHub, which builds it and needs a Rust
 toolchain: `uv add "fastgrpc3-transport @ git+https://github.com/EdwinAlkins/fastgrpc3-transport"`.
 

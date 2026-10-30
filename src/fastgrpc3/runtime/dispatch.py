@@ -1,8 +1,8 @@
-"""From a handler to a `grpc` method handler: hooks, decoding, dependencies, errors.
+"""From request bytes to response bytes: hooks, decoding, dependencies, errors.
 
 Everything that can be decided once is decided when the server starts (codecs, dependency
 plan, whether a `Context` is needed). The body stays bytes until the hooks (authentication)
-have run. Failures become statuses:
+have run. Failures become an `RpcFailure` the transport sends as a status:
 
 - `GrpcError` -> its code, message and details;
 - a request that does not decode -> `INVALID_ARGUMENT "invalid request payload"`;
@@ -15,20 +15,19 @@ import inspect
 import logging
 from collections.abc import AsyncIterable, AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
-from typing import Any, NoReturn
+from typing import Any
 
-import grpc
-import grpc.aio
 from pydantic import BaseModel
 
 from fastgrpc3.api.context import Context
 from fastgrpc3.api.deps import DependencyPlan
-from fastgrpc3.api.errors import DETAILS_TRAILER, GrpcError, StatusCode, encode_details
+from fastgrpc3.api.errors import GrpcError, StatusCode, encode_details
 from fastgrpc3.api.service import Handler
 from fastgrpc3.runtime.deadline import reset_deadline, set_deadline
 from fastgrpc3.schema.codec import MessageCodec
+from fastgrpc3.transport.base import RpcFailure, TransportContext
 
-__all__ = ["ExceptionHandler", "Hook", "Invoker", "Middleware", "Pipeline"]
+__all__ = ["Call", "ExceptionHandler", "Hook", "Invoker", "Middleware", "Pipeline"]
 
 logger = logging.getLogger("fastgrpc3")
 
@@ -36,7 +35,9 @@ Hook = Callable[[Context], Awaitable[None]]
 CallNext = Callable[[], Awaitable[Any]]
 Middleware = Callable[[Context, CallNext], Awaitable[Any]]
 ExceptionHandler = Callable[[Exception], GrpcError | Awaitable[GrpcError]]
-ServicerContext = grpc.aio.ServicerContext[Any, Any]
+#: `call(request, transport)`: response bytes, `None` once a server stream is written, or
+#: the failure to send as a status.
+Call = Callable[[Any, TransportContext], Awaitable[bytes | RpcFailure | None]]
 
 _NO_STACK: contextlib.nullcontext[None] = contextlib.nullcontext()
 
@@ -55,7 +56,7 @@ class Pipeline:
 
 
 class Invoker:
-    """Runs one method: the `grpc` handler calls `unary_response` or `stream_response`."""
+    """Runs one method: the transport awaits `call(request, transport_context)`."""
 
     def __init__(
         self,
@@ -79,81 +80,70 @@ class Invoker:
             or pipeline.hooks
             or pipeline.middlewares
         )
-
-    def rpc_method_handler(self) -> "grpc.RpcMethodHandler[Any, Any]":  # generic in stubs only
-        """The `grpc` handler; bodies stay bytes (no serializer on the `grpc` side)."""
-        method = self.handler.method
+        method = handler.method
+        self.call: Call
         if method.server_streaming:
-            if method.client_streaming:
-                return grpc.stream_stream_rpc_method_handler(self.stream_response)
-            return grpc.unary_stream_rpc_method_handler(self.stream_response)
-        if method.client_streaming:
-            return grpc.stream_unary_rpc_method_handler(self.unary_response)
-        if not self.needs_context and not self.plan.nodes:
-            return grpc.unary_unary_rpc_method_handler(self._plain_unary())
-        return grpc.unary_unary_rpc_method_handler(self.unary_response)
+            self.call = self.stream_response
+        elif method.client_streaming or self.needs_context or plan.nodes:
+            self.call = self.unary_response
+        else:
+            self.call = self._plain_unary()
 
-    def _plain_unary(self) -> Callable[[bytes, ServicerContext], Awaitable[bytes]]:
+    def _plain_unary(self) -> Callable[[bytes, TransportContext], Awaitable[bytes | RpcFailure]]:
         """`unary_response` for the common case (request -> response, no context, hooks,
         middlewares or dependencies), without the branches: about 3 % more calls/s."""
         function = self.handler.function
         parameter = self.handler.request_parameter
         positional = _first_positional(function) == parameter
-        decode, encode, to_error, abort = self._decode, self._encode, self._to_error, self._abort
+        decode, encode = self._decode, self._encode
 
-        async def plain_unary(request: bytes, grpc_context: ServicerContext) -> bytes:
-            token = set_deadline(grpc_context.time_remaining())
+        async def plain_unary(request: bytes, transport: TransportContext) -> bytes | RpcFailure:
+            token = set_deadline(transport.time_remaining())
             try:
-                try:
-                    message = decode(request)
-                    if positional:
-                        response = await function(message)
-                    else:
-                        response = await function(**{parameter: message})
-                    return encode(response)
-                except Exception as e:  # every failure becomes a status
-                    error = await to_error(e)
+                message = decode(request)
+                if positional:
+                    response = await function(message)
+                else:
+                    response = await function(**{parameter: message})
+                return encode(response)
+            except Exception as e:  # every failure becomes a status
+                return self._failure(await self._to_error(e))
             finally:
                 _reset(token)
-            await abort(grpc_context, error)
 
         return plain_unary
 
-    async def unary_response(self, request: Any, grpc_context: ServicerContext) -> bytes:
-        token = set_deadline(grpc_context.time_remaining())
+    async def unary_response(self, request: Any, transport: TransportContext) -> bytes | RpcFailure:
+        token = set_deadline(transport.time_remaining())
         try:
-            try:
-                context = await self._prepare(grpc_context)
-                stack = contextlib.AsyncExitStack() if self.plan.needs_cleanup else _NO_STACK
-                async with stack as exit_stack:
-                    response = await self._call(context, request, exit_stack, grpc_context)
-                    return self._encode(response)
-            except Exception as e:  # every failure becomes a status
-                error = await self._to_error(e)
+            context = await self._prepare(transport)
+            stack = contextlib.AsyncExitStack() if self.plan.needs_cleanup else _NO_STACK
+            async with stack as exit_stack:
+                response = await self._call(context, request, exit_stack, transport)
+                return self._encode(response)
+        except Exception as e:  # every failure becomes a status
+            return self._failure(await self._to_error(e))
         finally:
             _reset(token)
-        await self._abort(grpc_context, error)
 
-    async def stream_response(self, request: Any, grpc_context: ServicerContext) -> None:
+    async def stream_response(self, request: Any, transport: TransportContext) -> RpcFailure | None:
         """A server stream: the responses are written by `_call`, inside the middlewares."""
-        token = set_deadline(grpc_context.time_remaining())
+        token = set_deadline(transport.time_remaining())
         try:
-            try:
-                context = await self._prepare(grpc_context)
-                stack = contextlib.AsyncExitStack() if self.plan.needs_cleanup else _NO_STACK
-                async with stack as exit_stack:
-                    await self._call(context, request, exit_stack, grpc_context)
-                return
-            except Exception as e:  # every failure becomes a status
-                error = await self._to_error(e)
+            context = await self._prepare(transport)
+            stack = contextlib.AsyncExitStack() if self.plan.needs_cleanup else _NO_STACK
+            async with stack as exit_stack:
+                await self._call(context, request, exit_stack, transport)
+            return None
+        except Exception as e:  # every failure becomes a status
+            return self._failure(await self._to_error(e))
         finally:
             _reset(token)
-        await self._abort(grpc_context, error)
 
-    async def _prepare(self, grpc_context: ServicerContext) -> Context | None:
+    async def _prepare(self, transport: TransportContext) -> Context | None:
         if not self.needs_context:
             return None
-        context = Context(grpc_context, self.path)
+        context = Context(transport, self.path)
         for hook in self.pipeline.hooks:
             await hook(context)
         return context
@@ -163,7 +153,7 @@ class Invoker:
         context: Context | None,
         request: Any,
         stack: contextlib.AsyncExitStack | None,
-        grpc_context: ServicerContext,
+        transport: TransportContext,
     ) -> Any:
         """Decode, then run the middlewares around the dependencies and the handler.
 
@@ -188,7 +178,7 @@ class Invoker:
                 return await handler.function(**kwargs)
             async with contextlib.aclosing(handler.function(**kwargs)) as responses:
                 async for response in responses:
-                    await grpc_context.write(encode(response))
+                    await transport.write(encode(response))
             return None
 
         call_next: CallNext = call_handler
@@ -238,15 +228,14 @@ class Invoker:
         logger.error("unhandled error in %s", self.path, exc_info=error)
         return GrpcError(StatusCode.INTERNAL, "internal server error")
 
-    async def _abort(self, grpc_context: ServicerContext, error: GrpcError) -> NoReturn:
-        trailers: tuple[tuple[str, str | bytes], ...] = ()
+    def _failure(self, error: GrpcError) -> RpcFailure:
+        blob = None
         if error.details:
             try:
                 blob = encode_details(error.code, error.message, error.details)
-                trailers = ((DETAILS_TRAILER, blob),)
             except Exception:
                 logger.exception("cannot encode the error details of %s", self.path)
-        await grpc_context.abort(error.code, error.message, trailing_metadata=trailers)
+        return RpcFailure(error.code, error.message, blob)
 
 
 def _bind(middleware: Middleware, context: Context, call_next: CallNext) -> CallNext:

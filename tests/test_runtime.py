@@ -22,7 +22,9 @@ from fastgrpc3 import (
     StatusCode,
     register_detail,
 )
+from fastgrpc3.runtime.dispatch import Invoker
 from fastgrpc3.testing import TestClient
+from fastgrpc3.transport.base import Pairs, RpcFailure
 from fastgrpc3.types import AnyMessage, field
 
 
@@ -121,6 +123,77 @@ async def test_the_four_call_kinds() -> None:
 
         echoed = [r async for r in calc.echo(requests())]
         assert echoed == [Rep(total=5, text="a"), Rep(total=6, text="b")]
+
+
+class FakeTransport:
+    """A `TransportContext` without `grpc`."""
+
+    def __init__(self) -> None:
+        self.written: list[bytes] = []
+
+    def time_remaining(self) -> float | None:
+        return None
+
+    def invocation_metadata(self) -> Pairs:
+        return ()
+
+    def peer(self) -> str:
+        return "fake"
+
+    def peer_identities(self) -> None:
+        return None
+
+    def auth_context(self) -> dict[str, list[bytes]]:
+        return {}
+
+    async def send_initial_metadata(self, metadata: Pairs, /) -> None:
+        pass
+
+    def set_trailing_metadata(self, metadata: Pairs, /) -> None:
+        pass
+
+    async def write(self, message: bytes, /) -> None:
+        self.written.append(message)
+
+
+class CollectBackend:
+    """A `TransportBackend` that only keeps the invokers."""
+
+    def __init__(self) -> None:
+        self.invokers: dict[str, Invoker] = {}
+
+    def add_method(self, invoker: Invoker) -> None:
+        self.invokers[invoker.path.rsplit("/", 1)[1]] = invoker
+
+    async def start(self) -> int:
+        return 0
+
+    async def stop(self, grace: float | None) -> None:
+        pass
+
+    async def wait_for_termination(self) -> None:
+        pass
+
+
+async def test_invokers_answer_bytes_or_a_failure_without_grpc() -> None:
+    app, backend, transport = make_app(), CollectBackend(), FakeTransport()
+    schema = app._build_schema()
+    app._register(backend, schema)
+    req, rep = schema.codec(Req), schema.codec(Rep)
+    call = {name: invoker.call for name, invoker in backend.invokers.items()}
+
+    double = await call["Double"](req.encode(Req(n=21)), transport)  # with a Context
+    assert isinstance(double, bytes)
+    assert rep.decode(double) == Rep(total=42, text="/calc.v1.Calc/Double")
+    assert await call["Count"](req.encode(Req(n=2)), transport) is None
+    assert [rep.decode(m) for m in transport.written] == [Rep(total=0), Rep(total=1)]
+
+    failure = await call["Fail"](req.encode(Req(text="grpc")), transport)  # the fast path
+    assert isinstance(failure, RpcFailure)
+    assert (failure.code, failure.message) == (StatusCode.FAILED_PRECONDITION, "not now")
+    assert failure.details
+    invalid = RpcFailure(StatusCode.INVALID_ARGUMENT, "invalid request payload")
+    assert await call["Fail"](b"\xff", transport) == invalid
 
 
 async def test_grpc_error_carries_standard_and_registered_details() -> None:

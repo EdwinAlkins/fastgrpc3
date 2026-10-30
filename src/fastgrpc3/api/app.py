@@ -1,4 +1,4 @@
-"""`GrpcApp`: services, hooks and settings; a `grpc.aio` server once started.
+"""`GrpcApp`: services, hooks and settings; a server (the `grpc.aio` transport) once started.
 
     app = GrpcApp(address="[::]:50051", tls=Insecure())
     app.add_service(service)
@@ -38,7 +38,6 @@ from fastgrpc3.api.security import (
     Insecure,
     Security,
     check_security,
-    server_credentials,
 )
 from fastgrpc3.api.service import GrpcService
 from fastgrpc3.ops.health import HealthService, ServingStatus
@@ -46,6 +45,8 @@ from fastgrpc3.ops.reflection import reflection_services
 from fastgrpc3.runtime.dispatch import ExceptionHandler, Hook, Invoker, Middleware, Pipeline
 from fastgrpc3.schema import Lock, Schema, SchemaRegistry
 from fastgrpc3.schema.lock import Unlocked
+from fastgrpc3.transport.base import TransportBackend
+from fastgrpc3.transport.grpc_aio import GrpcAioTransport
 
 if TYPE_CHECKING:
     from fastgrpc3.ops.docs import DocsServer
@@ -115,7 +116,7 @@ class GrpcApp:
         #: The compiled contract, once started.
         self.schema: Schema | None = None
         self.bound_port: int | None = None
-        self._server: grpc.aio.Server | None = None
+        self._server: TransportBackend | None = None
         self._lifespan: contextlib.AbstractAsyncContextManager[None] | None = None
 
     # -- configuration ---------------------------------------------------------------
@@ -247,20 +248,16 @@ class GrpcApp:
             await self._lifespan.__aenter__()
         try:
             self.schema = self._build_schema()
-            server = grpc.aio.server(
+            server = GrpcAioTransport(
+                self.address,
+                security,
                 interceptors=self.server_interceptors,
                 options=self._server_options(),
                 maximum_concurrent_rpcs=self.maximum_concurrent_rpcs,
                 compression=self.compression,
             )
             self._register(server, self.schema)
-            if isinstance(security, Insecure):
-                port = server.add_insecure_port(self.address)
-            else:
-                port = server.add_secure_port(self.address, server_credentials(security))
-            if port == 0:
-                raise RuntimeError(f"cannot bind {self.address}")
-            await server.start()
+            port = await server.start()
         except BaseException:
             await self._exit_lifespan()
             raise
@@ -353,12 +350,11 @@ class GrpcApp:
             )
         return schema
 
-    def _register(self, server: grpc.aio.Server, schema: Schema) -> None:
+    def _register(self, server: TransportBackend, schema: Schema) -> None:
         pipeline = Pipeline(
             tuple(self.hooks), tuple(self.middlewares), dict(self.exception_handlers)
         )
         for service in self.services:
-            handlers = {}
             for name, handler in service.handlers.items():
                 invoker = Invoker(
                     f"/{service.full_name}/{name}",
@@ -372,8 +368,7 @@ class GrpcApp:
                     ),
                     pipeline,
                 )
-                handlers[name] = invoker.rpc_method_handler()
-            server.add_registered_method_handlers(service.full_name, handlers)
+                server.add_method(invoker)
 
     async def _exit_lifespan(self) -> None:
         manager, self._lifespan = self._lifespan, None

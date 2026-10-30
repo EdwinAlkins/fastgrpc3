@@ -5,8 +5,9 @@
 
 Modes: `raw` (`grpc.aio` with `google.protobuf` (upb) messages, i.e. generated stubs, no
 framework), `fastgrpc2`, `fastgrpc3`, `fastgrpc3-novalidate` (`validate_requests=False`),
-and `fastgrpc3-deps-N-KIND`: fastgrpc3 with N trivial dependencies per handler, each a
-`sync` or `async` function or a `gen` / `agen` generator.
+`fastgrpc3-deps-N-KIND`: fastgrpc3 with N trivial dependencies per handler, each a
+`sync` or `async` function or a `gen` / `agen` generator, and `fastgrpc3-mw-N`: fastgrpc3
+with N middlewares that only call the next step.
 Every server echoes the request of `bench.v1.Bench/{Small,Medium,Large}`.
 """
 
@@ -39,11 +40,12 @@ def echo_handler(model: Any) -> Any:
 
 
 DEPS_MODE = re.compile(r"fastgrpc3-deps-(\d+)-(sync|async|gen|agen)")
+MIDDLEWARES_MODE = re.compile(r"fastgrpc3-mw-(\d+)")
 
 
 def is_mode(mode: str) -> bool:
     simple = ("raw", "fastgrpc2", "fastgrpc3", "fastgrpc3-novalidate")
-    return mode in simple or DEPS_MODE.fullmatch(mode) is not None
+    return mode in simple or any(m.fullmatch(mode) for m in (DEPS_MODE, MIDDLEWARES_MODE))
 
 
 def make_provider(kind: str) -> Callable[..., Any]:
@@ -78,12 +80,17 @@ def deps_handler(model: Any, count: int, kind: str) -> Any:
         return request
 
     keyword = inspect.Parameter.KEYWORD_ONLY
-    parameters = [inspect.Parameter("request", inspect.Parameter.POSITIONAL_OR_KEYWORD)]
+    request = inspect.Parameter(
+        "request", inspect.Parameter.POSITIONAL_OR_KEYWORD, annotation=model
+    )
+    parameters = [request]
     parameters += [
         inspect.Parameter(f"d{i}", keyword, default=Depends(make_provider(kind)))
         for i in range(count)
     ]
-    echo.__signature__ = inspect.Signature(parameters)  # type: ignore[attr-defined]
+    # The parameters' annotations are read from the signature, the return one from
+    # `__annotations__`: both are needed.
+    echo.__signature__ = inspect.Signature(parameters, return_annotation=model)  # type: ignore[attr-defined]
     echo.__annotations__ = {"request": model, "return": model}
     return echo
 
@@ -103,6 +110,13 @@ def fastgrpc3_app(port: int, mode: str = "fastgrpc3") -> Any:
     validate = mode != "fastgrpc3-novalidate"
     app = GrpcApp(tls=Insecure(), address=f"127.0.0.1:{port}", validate_requests=validate)
     app.add_service(service)
+    middlewares = MIDDLEWARES_MODE.fullmatch(mode)
+    for _ in range(int(middlewares[1]) if middlewares else 0):
+
+        @app.middleware
+        async def passthrough(ctx: Any, call_next: Any) -> Any:
+            return await call_next()
+
     return app, models
 
 

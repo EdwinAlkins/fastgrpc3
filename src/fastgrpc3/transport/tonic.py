@@ -4,13 +4,15 @@ the invokers run on this asyncio loop.
 tokio queues the calls and the request messages without the GIL and wakes the loop through
 a socket; the loop takes them by batches (`fastgrpc3-transport/docs/ARCHITECTURE.md`).
 Response streams wait while their bounded channel is full; request streams are read one
-message per credit, given back as the handler consumes them.
+message per credit, given back as the handler consumes them. When tonic gives a call up
+(client gone, deadline, closed connection, stop), its task is cancelled, as with `grpc.aio`.
 
-Not supported yet: response metadata, peer, deadlines (lots 5 and 6 of the plan);
+Not supported yet: response metadata, peer (lot 6 of the plan);
 `GrpcApp` refuses TLS, compression and the other `grpc` settings with this transport.
 """
 
 import asyncio
+import functools
 import socket
 import sys
 from collections.abc import AsyncIterator
@@ -55,7 +57,8 @@ class TonicTransport:
         #: Events taken per loop turn: a burst is served over several turns.
         self._max_batch = max_batch
         self._invokers: dict[str, Invoker] = {}
-        self._tasks: set[asyncio.Task[None]] = set()
+        #: The task of every call in Python, by call id.
+        self._running: dict[int, asyncio.Task[None]] = {}
         self._writable: dict[int, asyncio.Future[None]] = {}
         self._inboxes: dict[int, Inbox] = {}
         self._wake: socket.socket | None = None
@@ -86,9 +89,10 @@ class TonicTransport:
         self._server.shutdown(grace or 0.0)
         while not self._server.finished():
             await asyncio.sleep(0.01)
-        for task in list(self._tasks):
+        tasks = list(self._running.values())
+        for task in tasks:
             task.cancel()
-        await asyncio.gather(*self._tasks, return_exceptions=True)
+        await asyncio.gather(*tasks, return_exceptions=True)
         self._loop.remove_reader(self._wake.fileno())
         self._server.join()
         self._wake.close()
@@ -124,7 +128,7 @@ class TonicTransport:
 
     def _pump(self) -> None:
         assert self._loop is not None
-        calls, writable, requests, more = self._server.take(self._max_batch)
+        calls, writable, requests, cancelled, more = self._server.take(self._max_batch)
         if more:  # the socket is written again only once the queue has emptied
             self._loop.call_soon(self._pump)
         for call_id in writable:
@@ -138,12 +142,19 @@ class TonicTransport:
                 # Before the messages of this batch, which come after their call.
                 inbox = self._inboxes[call.id] = asyncio.Queue()
             task = self._loop.create_task(self._run(call, invoker, inbox))
-            self._tasks.add(task)
-            task.add_done_callback(self._tasks.discard)
+            self._running[call.id] = task
+            task.add_done_callback(functools.partial(self._ended, call.id))
         for call_id, message, clean in requests:
             inbox = self._inboxes.get(call_id)
             if inbox is not None:
                 inbox.put_nowait((message, clean))
+        for call_id in cancelled:  # after the calls: one may be given up in the same batch
+            running = self._running.get(call_id)
+            if running is not None:
+                running.cancel()
+
+    def _ended(self, call_id: int, task: asyncio.Task[None]) -> None:
+        self._running.pop(call_id, None)
 
     async def _run(self, call: Call, invoker: Invoker, inbox: Inbox | None) -> None:
         request = call.body if inbox is None else _read(call, inbox)
@@ -178,7 +189,7 @@ async def _read(call: Call, inbox: Inbox) -> AsyncIterator[bytes]:
 class _Context:
     """The `TransportContext` of a tonic call.
 
-    shortcut: no response metadata, peer or deadline yet; lots 5 and 6 of the plan add them.
+    shortcut: no response metadata or peer yet; lot 6 of the plan adds them.
     """
 
     __slots__ = ("_call", "_transport")
@@ -188,7 +199,7 @@ class _Context:
         self._call = call
 
     def time_remaining(self) -> float | None:
-        return None
+        return self._call.time_remaining()
 
     def invocation_metadata(self) -> Pairs:
         return self._call.metadata()

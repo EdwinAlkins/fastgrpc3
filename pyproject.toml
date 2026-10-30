@@ -55,8 +55,8 @@ dev = [
 ]
 
 [tool.uv.sources]
-# Not on PyPI yet (published soon): built from the sibling repository until then.
-fastgrpc3-transport = { path = "../fastgrpc3-transport" }
+# Not on PyPI yet (published soon): built from its GitHub repository until then.
+fastgrpc3-transport = { git = "https://github.com/EdwinAlkins/fastgrpc3-transport" }
 
 [build-system]
 requires = ["uv_build>=0.13.4,<0.14.0"]

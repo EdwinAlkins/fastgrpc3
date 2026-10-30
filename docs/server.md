@@ -283,8 +283,8 @@ concurrency (see [Performance](performance.md#on-tonic)).
 pip install "fastgrpc3[tonic]"
 ```
 
-Until it is published on PyPI, install `fastgrpc3-transport` from its repository
-(`uv add --editable ../fastgrpc3-transport`, which needs a Rust toolchain).
+Until it is published on PyPI, install it from GitHub, which builds it and needs a Rust
+toolchain: `uv add "fastgrpc3-transport @ git+https://github.com/EdwinAlkins/fastgrpc3-transport"`.
 
 Choose it without changing the application, in this order of precedence:
 

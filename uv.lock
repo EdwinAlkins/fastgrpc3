@@ -146,7 +146,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "fastgrpc3-transport", marker = "extra == 'tonic'", directory = "../fastgrpc3-transport" },
+    { name = "fastgrpc3-transport", marker = "extra == 'tonic'", git = "https://github.com/EdwinAlkins/fastgrpc3-transport" },
     { name = "grpcio", specifier = ">=1.75.1" },
     { name = "protoruf", specifier = ">=0.5.3" },
     { name = "pydantic", specifier = ">=2.11" },
@@ -171,7 +171,7 @@ dev = [
 [[package]]
 name = "fastgrpc3-transport"
 version = "0.1.0"
-source = { directory = "../fastgrpc3-transport" }
+source = { git = "https://github.com/EdwinAlkins/fastgrpc3-transport#0a72e16f562ef94af70b0b0e43dfbbc939cfe943" }
 
 [[package]]
 name = "grpcio"

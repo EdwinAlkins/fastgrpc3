@@ -29,6 +29,8 @@ from fastgrpc3.ops.health import ServingStatus
 from fastgrpc3.testing import TestClient
 from fastgrpc3.types import Empty
 
+pytestmark = pytest.mark.usefixtures("transport")
+
 
 class Ping(BaseModel):
     n: int = 0

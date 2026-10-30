@@ -22,6 +22,8 @@ from fastgrpc3 import (
 )
 from fastgrpc3.testing import TestClient
 
+pytestmark = pytest.mark.usefixtures("transport")
+
 
 class Req(BaseModel):
     n: int = 0

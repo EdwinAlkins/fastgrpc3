@@ -16,6 +16,7 @@ __all__ = [
     "Security",
     "channel_credentials",
     "check_security",
+    "read_pem",
     "server_credentials",
 ]
 
@@ -80,7 +81,7 @@ def server_credentials(security: TLS | MTLS) -> grpc.ServerCredentials:
     if security.cert is None or security.key is None:
         raise ValueError("a TLS server needs cert and key")
     return grpc.ssl_server_credentials(
-        [(_read(security.key), _read(security.cert))],
+        [(read_pem(security.key), read_pem(security.cert))],
         root_certificates=_read_optional(security.ca),
         require_client_auth=isinstance(security, MTLS),
     )
@@ -90,16 +91,17 @@ def channel_credentials(security: TLS | MTLS) -> grpc.ChannelCredentials:
     """Credentials of a TLS client channel."""
     if isinstance(security, MTLS):
         return grpc.ssl_channel_credentials(
-            root_certificates=_read(security.ca),
-            private_key=_read(security.key),
-            certificate_chain=_read(security.cert),
+            root_certificates=read_pem(security.ca),
+            private_key=read_pem(security.key),
+            certificate_chain=read_pem(security.cert),
         )
     return grpc.ssl_channel_credentials(root_certificates=_read_optional(security.ca))
 
 
-def _read(pem: Pem) -> bytes:
+def read_pem(pem: Pem) -> bytes:
+    """The PEM bytes of a path or of bytes."""
     return pem if isinstance(pem, bytes) else Path(pem).read_bytes()
 
 
 def _read_optional(pem: Pem | None) -> bytes | None:
-    return None if pem is None else _read(pem)
+    return None if pem is None else read_pem(pem)

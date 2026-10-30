@@ -7,8 +7,7 @@ Response streams wait while their bounded channel is full; request streams are r
 message per credit, given back as the handler consumes them. When tonic gives a call up
 (client gone, deadline, closed connection, stop), its task is cancelled, as with `grpc.aio`.
 
-Not supported yet: response metadata, peer (lot 6 of the plan);
-`GrpcApp` refuses TLS, compression and the other `grpc` settings with this transport.
+`GrpcApp` refuses the `grpc` settings this transport does not support yet.
 """
 
 import asyncio
@@ -19,7 +18,9 @@ from collections.abc import AsyncIterator
 
 from fastgrpc3_transport import CLOSED, SENT, Call, Server
 
-from fastgrpc3.api.errors import StatusCode
+from fastgrpc3.api.config import Keepalive, Limits
+from fastgrpc3.api.errors import GrpcError, StatusCode
+from fastgrpc3.api.security import MTLS, TLS, Insecure, Security, read_pem
 from fastgrpc3.runtime.dispatch import Invoker
 from fastgrpc3.transport.base import Pairs, RpcFailure
 
@@ -34,7 +35,8 @@ _KINDS = {
 #: tokio's semaphore takes at most `usize::MAX >> 3` permits.
 _UNLIMITED = sys.maxsize >> 3
 
-Inbox = asyncio.Queue[tuple[bytes | None, bool]]
+#: Request messages, then `(None, code)` at the end of the stream (`0`: a clean end).
+Inbox = asyncio.Queue[tuple[bytes | None, int]]
 
 
 class TonicTransport:
@@ -44,7 +46,12 @@ class TonicTransport:
         self,
         address: str,
         *,
+        security: Security,
         maximum_concurrent_rpcs: int | None,
+        limits: Limits,
+        compression: str | None = None,
+        keepalive: Keepalive | None = None,
+        reuse_port: bool = False,
         threads: int = 1,
         max_batch: int = 128,
     ) -> None:
@@ -52,7 +59,17 @@ class TonicTransport:
         self.address = address
         self._host, self._port = host.strip("[]"), int(port)
         self._server = Server(
-            threads=threads, max_concurrent_rpcs=maximum_concurrent_rpcs or _UNLIMITED
+            threads=threads,
+            max_concurrent_rpcs=maximum_concurrent_rpcs or _UNLIMITED,
+            max_recv_bytes=limits.max_recv_bytes,
+            max_send_bytes=limits.max_send_bytes,
+            max_metadata_bytes=limits.max_metadata_bytes,
+            compression=compression,
+            keepalive=None
+            if keepalive is None
+            else (keepalive.time_ms / 1000, keepalive.timeout_ms / 1000),
+            reuse_port=reuse_port,
+            tls=None if isinstance(security, Insecure) else _tls(security),
         )
         #: Events taken per loop turn: a burst is served over several turns.
         self._max_batch = max_batch
@@ -144,10 +161,10 @@ class TonicTransport:
             task = self._loop.create_task(self._run(call, invoker, inbox))
             self._running[call.id] = task
             task.add_done_callback(functools.partial(self._ended, call.id))
-        for call_id, message, clean in requests:
+        for call_id, message, code in requests:
             inbox = self._inboxes.get(call_id)
             if inbox is not None:
-                inbox.put_nowait((message, clean))
+                inbox.put_nowait((message, code))
         for call_id in cancelled:  # after the calls: one may be given up in the same batch
             running = self._running.get(call_id)
             if running is not None:
@@ -174,14 +191,23 @@ class TonicTransport:
             call.reply(result)
 
 
+def _tls(security: TLS | MTLS) -> tuple[bytes, bytes, bytes | None, bool]:
+    if security.cert is None or security.key is None:
+        raise ValueError("a TLS server needs cert and key")
+    ca = None if security.ca is None else read_pem(security.ca)
+    return read_pem(security.cert), read_pem(security.key), ca, isinstance(security, MTLS)
+
+
 async def _read(call: Call, inbox: Inbox) -> AsyncIterator[bytes]:
     while True:
-        message, clean = await inbox.get()
+        message, code = await inbox.get()
         if message is None:
-            if clean:
+            if code == 0:
                 return
-            # The client reset its stream; `grpc.aio` cancels the handler then.
-            raise asyncio.CancelledError
+            if code == StatusCode.CANCELLED.value[0]:
+                # The client reset its stream; `grpc.aio` cancels the handler then.
+                raise asyncio.CancelledError
+            raise GrpcError(StatusCode.RESOURCE_EXHAUSTED, "received message larger than max")
         call.consumed()
         yield message
 
@@ -189,7 +215,7 @@ async def _read(call: Call, inbox: Inbox) -> AsyncIterator[bytes]:
 class _Context:
     """The `TransportContext` of a tonic call.
 
-    shortcut: no response metadata or peer yet; lot 6 of the plan adds them.
+    A unary call sends its headers with its answer, not at `send_initial_metadata`.
     """
 
     __slots__ = ("_call", "_transport")
@@ -205,19 +231,19 @@ class _Context:
         return self._call.metadata()
 
     def peer(self) -> str:
-        return ""
+        return self._call.peer
 
-    def peer_identities(self) -> None:
-        return None
+    def peer_identities(self) -> list[bytes] | None:
+        return self._call.peer_identities()
 
     def auth_context(self) -> dict[str, list[bytes]]:
-        return {}
+        return self._call.auth_context()
 
     async def send_initial_metadata(self, metadata: Pairs, /) -> None:
-        raise NotImplementedError("response metadata is not supported by the tonic transport yet")
+        self._call.send_initial_metadata(list(metadata))
 
     def set_trailing_metadata(self, metadata: Pairs, /) -> None:
-        raise NotImplementedError("response metadata is not supported by the tonic transport yet")
+        self._call.set_trailing_metadata(list(metadata))
 
     async def write(self, message: bytes, /) -> None:
         if not await self._transport.send(self._call, message):

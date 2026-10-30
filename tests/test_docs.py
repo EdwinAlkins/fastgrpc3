@@ -27,6 +27,8 @@ from fastgrpc3.ops.openapi import openapi
 from fastgrpc3.runtime.workers import serve
 from fastgrpc3.testing import TestClient
 
+pytestmark = pytest.mark.usefixtures("transport")
+
 
 class Color(ProtoEnum):
     """A color."""

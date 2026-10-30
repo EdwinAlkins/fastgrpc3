@@ -58,6 +58,7 @@ logger = logging.getLogger("fastgrpc3")
 
 Lifespan = Callable[["GrpcApp"], contextlib.AbstractAsyncContextManager[None]]
 TransportName = Literal["grpc_aio", "tonic"]
+_COMPRESSIONS = {Compression.Gzip: "gzip", Compression.Deflate: "deflate"}
 
 
 class GrpcApp:
@@ -333,25 +334,26 @@ class GrpcApp:
                 "transport 'tonic' does not support native grpc.aio server interceptors: "
                 "use fastgrpc3 middlewares or select grpc_aio"
             )
-        # shortcut: max_send_bytes is not enforced by tonic; lot 6 maps the limits.
-        unsupported = {
-            "tls": not isinstance(security, Insecure),
-            "compression": self.compression is not None,
-            "keepalive": self.keepalive is not None,
-            "options": bool(self.options),
-            "max_recv_bytes / max_metadata_bytes": self.limits
-            != Limits(self.limits.max_send_bytes),
-        }
-        names = ", ".join(name for name, used in unsupported.items() if used)
-        if names:
-            raise ValueError(f"transport 'tonic' does not support yet: {names}")
+        reuse_port = False
+        for name, value in self.options:  # `run --workers` shares the port
+            if name != "grpc.so_reuseport":
+                raise ValueError(f"transport 'tonic' does not support the grpc option {name!r}")
+            reuse_port = bool(value)
         try:
             from fastgrpc3.transport.tonic import TonicTransport
         except ImportError as e:
             raise RuntimeError(
                 "transport 'tonic' is not installed: pip install fastgrpc3-transport"
             ) from e
-        return TonicTransport(self.address, maximum_concurrent_rpcs=self.maximum_concurrent_rpcs)
+        return TonicTransport(
+            self.address,
+            security=security,
+            maximum_concurrent_rpcs=self.maximum_concurrent_rpcs,
+            limits=self.limits,
+            compression=None if self.compression is None else _COMPRESSIONS.get(self.compression),
+            keepalive=self.keepalive,
+            reuse_port=reuse_port,
+        )
 
     def _server_options(self) -> list[tuple[str, int | str]]:
         options = [*channel_options(self.limits, self.keepalive), *self.options]

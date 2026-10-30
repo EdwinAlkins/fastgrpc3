@@ -20,9 +20,9 @@ async def test_tonic_refuses_the_settings_it_does_not_support(
 ) -> None:
     pytest.importorskip("fastgrpc3_transport")
     monkeypatch.delenv("FASTGRPC_TRANSPORT", raising=False)
-    app = GrpcApp(tls=Insecure(), transport="tonic", options=[("grpc.x", 1)], max_recv_bytes=1024)
+    app = GrpcApp(tls=Insecure(), transport="tonic", options=[("grpc.x", 1)])
     app.enable_health()
-    with pytest.raises(ValueError, match="not support yet: options, max_recv_bytes"):
+    with pytest.raises(ValueError, match=r"does not support the grpc option 'grpc\.x'"):
         await app.start()
     assert app.bound_port is None
 

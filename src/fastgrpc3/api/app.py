@@ -1,4 +1,4 @@
-"""`GrpcApp`: services, hooks and settings; a server (the `grpc.aio` transport) once started.
+"""`GrpcApp`: services, hooks and settings; a server (`grpc.aio` or tonic) once started.
 
     app = GrpcApp(address="[::]:50051", tls=Insecure())
     app.add_service(service)
@@ -12,6 +12,7 @@ invoker per method and starts the server.
 import asyncio
 import contextlib
 import logging
+import os
 import signal
 from collections.abc import AsyncIterator, Callable, Sequence
 from pathlib import Path
@@ -56,6 +57,7 @@ __all__ = ["GrpcApp"]
 logger = logging.getLogger("fastgrpc3")
 
 Lifespan = Callable[["GrpcApp"], contextlib.AbstractAsyncContextManager[None]]
+TransportName = Literal["grpc_aio", "tonic"]
 
 
 class GrpcApp:
@@ -80,8 +82,12 @@ class GrpcApp:
         sync_providers: Literal["loop", "threadpool"] = "loop",
         validate_requests: bool = True,
         options: Sequence[tuple[str, int | str]] = (),
+        transport: TransportName = "grpc_aio",
     ) -> None:
         self.title = title
+        #: `"grpc_aio"`, or `"tonic"` (experimental, needs `fastgrpc3-transport`); the
+        #: `FASTGRPC_TRANSPORT` environment variable takes precedence.
+        self.transport: TransportName = _check_transport(transport)
         self.address = address
         self.tls = check_security(tls)
         self.compression = compression
@@ -248,14 +254,7 @@ class GrpcApp:
             await self._lifespan.__aenter__()
         try:
             self.schema = self._build_schema()
-            server = GrpcAioTransport(
-                self.address,
-                security,
-                interceptors=self.server_interceptors,
-                options=self._server_options(),
-                maximum_concurrent_rpcs=self.maximum_concurrent_rpcs,
-                compression=self.compression,
-            )
+            server = self._transport(security)
             self._register(server, self.schema)
             port = await server.start()
         except BaseException:
@@ -318,6 +317,42 @@ class GrpcApp:
         if self._server is not None:
             raise RuntimeError("the server is already started")
 
+    def _transport(self, security: Security) -> TransportBackend:
+        transport = _check_transport(os.environ.get("FASTGRPC_TRANSPORT") or self.transport)
+        if transport == "grpc_aio":
+            return GrpcAioTransport(
+                self.address,
+                security,
+                interceptors=self.server_interceptors,
+                options=self._server_options(),
+                maximum_concurrent_rpcs=self.maximum_concurrent_rpcs,
+                compression=self.compression,
+            )
+        if self.server_interceptors:
+            raise ValueError(
+                "transport 'tonic' does not support native grpc.aio server interceptors: "
+                "use fastgrpc3 middlewares or select grpc_aio"
+            )
+        # shortcut: max_send_bytes is not enforced by tonic; lot 6 maps the limits.
+        unsupported = {
+            "tls": not isinstance(security, Insecure),
+            "compression": self.compression is not None,
+            "keepalive": self.keepalive is not None,
+            "options": bool(self.options),
+            "max_recv_bytes / max_metadata_bytes": self.limits
+            != Limits(self.limits.max_send_bytes),
+        }
+        names = ", ".join(name for name, used in unsupported.items() if used)
+        if names:
+            raise ValueError(f"transport 'tonic' does not support yet: {names}")
+        try:
+            from fastgrpc3.transport.tonic import TonicTransport
+        except ImportError as e:
+            raise RuntimeError(
+                "transport 'tonic' is not installed: pip install fastgrpc3-transport"
+            ) from e
+        return TonicTransport(self.address, maximum_concurrent_rpcs=self.maximum_concurrent_rpcs)
+
     def _server_options(self) -> list[tuple[str, int | str]]:
         options = [*channel_options(self.limits, self.keepalive), *self.options]
         if not any(name == "grpc.so_reuseport" for name, _ in options):
@@ -374,6 +409,12 @@ class GrpcApp:
         manager, self._lifespan = self._lifespan, None
         if manager is not None:
             await manager.__aexit__(None, None, None)
+
+
+def _check_transport(name: str) -> TransportName:
+    if name not in ("grpc_aio", "tonic"):
+        raise ValueError(f'unknown transport {name!r}: "grpc_aio" or "tonic"')
+    return name  # type: ignore[return-value]  # checked above
 
 
 @contextlib.contextmanager

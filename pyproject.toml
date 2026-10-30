@@ -71,6 +71,11 @@ extend-immutable-calls = ["fastgrpc3.Depends", "fastgrpc3.api.deps.Depends"]
 python_version = "3.12"
 strict = true
 
+[[tool.mypy.overrides]]
+# The tonic transport, optional (`fastgrpc3-transport`, typed when installed).
+module = ["fastgrpc3_transport"]
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"

@@ -1,5 +1,6 @@
 """Server runtime through `TestClient`: calls, errors, hooks, middlewares, lifespan."""
 
+import asyncio
 import contextlib
 import logging
 from collections.abc import AsyncIterator
@@ -26,6 +27,8 @@ from fastgrpc3.runtime.dispatch import Invoker
 from fastgrpc3.testing import TestClient
 from fastgrpc3.transport.base import Pairs, RpcFailure
 from fastgrpc3.types import AnyMessage, field
+
+pytestmark = pytest.mark.usefixtures("transport")
 
 
 class Req(BaseModel):
@@ -123,6 +126,25 @@ async def test_the_four_call_kinds() -> None:
 
         echoed = [r async for r in calc.echo(requests())]
         assert echoed == [Rep(total=5, text="a"), Rep(total=6, text="b")]
+
+
+async def test_a_bidirectional_stream_answers_before_the_requests_end() -> None:
+    async with TestClient(make_app()) as tc:
+        answers: asyncio.Queue[Rep] = asyncio.Queue()
+
+        async def ping_pong() -> AsyncIterator[Req]:
+            for i in range(50):
+                yield Req(n=i)
+                assert (await answers.get()).total == i  # sent only once answered
+
+        async for answer in tc.client(CalcClient).echo(ping_pong()):
+            answers.put_nowait(answer)
+
+
+async def test_a_long_client_stream_arrives_whole_and_in_order() -> None:
+    async with TestClient(make_app()) as tc:
+        requests = [Req(n=i) for i in range(5000)]
+        assert await tc.client(CalcClient).sum(requests) == Rep(total=sum(range(5000)))
 
 
 class FakeTransport:

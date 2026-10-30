@@ -25,6 +25,8 @@ from fastgrpc3 import (
 from fastgrpc3.api.deps import SLOW_PROVIDER_SECONDS, plan_dependencies
 from fastgrpc3.testing import TestClient
 
+pytestmark = pytest.mark.usefixtures("transport")
+
 
 class Req(BaseModel):
     n: int = 0

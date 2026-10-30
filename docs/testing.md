@@ -47,4 +47,4 @@ asyncio_default_fixture_loop_scope = "function"
 Handlers stay plain functions: the decorators return them unchanged, so a unit test can
 also call one directly with a request and fake dependencies.
 
-`examples/tests/test_bookstore.py` tests every RPC of the example service this way.
+[`examples/tests/test_bookstore.py`](https://github.com/EdwinAlkins/fastgrpc3/blob/main/examples/tests/test_bookstore.py) tests every RPC of the example service this way.

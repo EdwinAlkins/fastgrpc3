@@ -93,7 +93,7 @@ Each dependency adds about 0.4 µs per call; the first middleware 1.8 µs (the c
 the fast path that skips building a `Context`), the next ones about 0.2 µs.
 
 Providers declared `@blocking` run in a thread, so that blocking I/O does not stall the
-other calls; that has a cost of its own (`benches/results/2026-10-29-deps.md`): keep it for
+other calls; that has a cost of its own ([`benches/results/2026-10-29-deps.md`](https://github.com/EdwinAlkins/fastgrpc3/blob/main/benches/results/2026-10-29-deps.md)): keep it for
 providers that really block.
 
 ## Codec
@@ -134,7 +134,7 @@ other CPUs over 4 connections, 4 s per point after a warm-up; three repetitions 
 alternating order, medians reported, spread mostly under 5 %. A run with failed calls is
 rejected. CPU per call counts every thread and process of the server.
 
-The scripts and the raw data are in the repositories: `benches/` here (codec, end to end,
+The scripts and the raw data are in the repositories: [`benches/`](https://github.com/EdwinAlkins/fastgrpc3/tree/main/benches) here (codec, end to end,
 dependencies), and `bench/campaign.py` with `bench/results/2026-10-30-lot9.md` in
 [fastgrpc3-transport](https://github.com/EdwinAlkins/fastgrpc3-transport). Compare results
 from the same machine only.

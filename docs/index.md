@@ -64,7 +64,7 @@ fastgrpc3 run hello:app
 ```
 
 [Getting started](getting-started.md) builds a complete service and its client step by
-step; `examples/` in the repository holds a bookstore service that uses every feature,
+step; [`examples/`](https://github.com/EdwinAlkins/fastgrpc3/tree/main/examples) in the repository holds a bookstore service that uses every feature,
 with its client and tests.
 
 ## Install

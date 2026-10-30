@@ -1,5 +1,9 @@
 site_name: fastgrpc3
 site_description: A FastAPI-like gRPC framework for Python, powered by protoruf
+site_url: https://edwinalkins.github.io/fastgrpc3/
+repo_url: https://github.com/EdwinAlkins/fastgrpc3
+repo_name: EdwinAlkins/fastgrpc3
+edit_uri: edit/main/docs/
 
 theme:
   name: material

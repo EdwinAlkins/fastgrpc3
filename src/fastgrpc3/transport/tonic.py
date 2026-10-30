@@ -91,6 +91,9 @@ class TonicTransport:
         self._running: dict[int, asyncio.Task[None]] = {}
         self._writable: dict[int, asyncio.Future[None]] = {}
         self._inboxes: dict[int, Inbox] = {}
+        #: Unary answers handed to tokio together (`reply_many`): one wake-up per batch.
+        self._answers: list[tuple[Call, bytes]] = []
+        self._flush_soon = False
         self._wake: socket.socket | None = None
         #: Reads the wake-up socket where the loop cannot watch it (Windows' Proactor).
         self._waker_task: asyncio.Task[None] | None = None
@@ -163,9 +166,8 @@ class TonicTransport:
 
     def _readable(self) -> None:
         assert self._wake is not None
-        try:
-            while self._wake.recv(4096):
-                pass
+        try:  # noqa: SIM105 - the hot path: cheaper than contextlib.suppress
+            self._wake.recv(4096)  # one byte per wake-up: a single read drains them
         except BlockingIOError:
             pass
         self._pump()
@@ -185,9 +187,11 @@ class TonicTransport:
             if invoker.handler.method.client_streaming:
                 # Before the messages of this batch, which come after their call.
                 inbox = self._inboxes[call.id] = asyncio.Queue()
-            task = self._loop.create_task(self._run(call, invoker, inbox))
-            self._running[call.id] = task
-            task.add_done_callback(functools.partial(self._ended, call.id))
+            # Run at once: a call that ends without suspending needs no scheduled task.
+            task = asyncio.eager_task_factory(self._loop, self._run(call, invoker, inbox))
+            if not task.done():
+                self._running[call.id] = task
+                task.add_done_callback(functools.partial(self._ended, call.id))
         for call_id, message, code in requests:
             inbox = self._inboxes.get(call_id)
             if inbox is not None:
@@ -196,6 +200,13 @@ class TonicTransport:
             running = self._running.get(call_id)
             if running is not None:
                 running.cancel()
+        self._flush()  # the calls that ended at once
+
+    def _flush(self) -> None:
+        self._flush_soon = False
+        if self._answers:
+            answers, self._answers = self._answers, []
+            self._server.reply_many(answers)
 
     def _ended(self, call_id: int, task: asyncio.Task[None]) -> None:
         self._running.pop(call_id, None)
@@ -215,7 +226,10 @@ class TonicTransport:
         elif result is None:
             call.finish()
         else:
-            call.reply(result)
+            self._answers.append((call, result))
+            if not self._flush_soon:  # for a call that ends outside `_pump`
+                self._flush_soon = True
+                self._loop.call_soon(self._flush)  # type: ignore[union-attr]
 
 
 def _tls(security: TLS | MTLS) -> tuple[bytes, bytes, bytes | None, bool]:

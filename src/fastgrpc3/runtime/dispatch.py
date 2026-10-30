@@ -255,5 +255,7 @@ def _first_positional(function: Callable[..., Any]) -> str | None:
 
 def _reset(token: Any) -> None:
     # An abandoned stream may be finalized outside the context it started in.
-    with contextlib.suppress(ValueError):
+    try:  # noqa: SIM105 - contextlib.suppress costs more, on every call
         reset_deadline(token)
+    except ValueError:
+        pass

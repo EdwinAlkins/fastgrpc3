@@ -12,6 +12,7 @@
 import argparse
 import importlib
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -30,6 +31,7 @@ from fastgrpc3.schema.breaking import breaking_changes
 from fastgrpc3.schema.lock import Lock, LockError
 from fastgrpc3.schema.registry import SchemaError, SchemaRegistry
 from fastgrpc3.schema.schema import Schema
+from fastgrpc3.transport import Transport
 
 __all__ = ["main"]
 
@@ -100,6 +102,8 @@ def _openapi(args: argparse.Namespace) -> int:
 
 def _run(args: argparse.Namespace) -> int:
     try:
+        if args.transport is not None:  # above the app's choice, and seen by the workers
+            os.environ["FASTGRPC_TRANSPORT"] = args.transport
         return serve(load_app, args.target, args.address, args.workers, args.grace)
     except ValueError as e:
         raise CliError(str(e)) from e
@@ -271,6 +275,11 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--address", help="host:port to bind (default: the app's)")
     run.add_argument("--workers", type=int, default=1, help="processes (default: 1)")
     run.add_argument("--grace", type=float, default=5.0, help="seconds to finish calls on stop")
+    run.add_argument(
+        "--transport",
+        choices=[t.value for t in Transport],
+        help="grpc_aio or tonic (default: FASTGRPC_TRANSPORT, else the app's)",
+    )
     run.set_defaults(command=_run)
 
     openapi_help = "write the OpenAPI document of an app's RPCs"

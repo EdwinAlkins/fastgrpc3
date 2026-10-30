@@ -35,6 +35,10 @@ fastgrpc3 = "fastgrpc3.cli:main"
 docs = [
     "uvicorn>=0.30",
 ]
+# The tonic transport (`GrpcApp(transport="tonic")`), a Rust server.
+tonic = [
+    "fastgrpc3-transport>=0.1,<0.2",
+]
 
 [dependency-groups]
 bench = [
@@ -49,6 +53,10 @@ dev = [
     "types-grpcio>=1.85.0.20261028",
     "uvicorn>=0.30",
 ]
+
+[tool.uv.sources]
+# Not on PyPI yet (published soon): built from the sibling repository until then.
+fastgrpc3-transport = { path = "../fastgrpc3-transport" }
 
 [build-system]
 requires = ["uv_build>=0.13.4,<0.14.0"]

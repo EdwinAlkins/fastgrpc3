@@ -25,10 +25,13 @@ Without arguments, `proto_paths`, `include` and `output` come from
 
 ```text
 fastgrpc3 run TARGET [--address HOST:PORT] [--workers N] [--grace SECONDS]
+              [--transport grpc_aio|tonic]
 ```
 
 Serve a `GrpcApp` until SIGINT or SIGTERM. `--workers` starts N processes sharing the port
-(default 1); `--grace` is the time left to running calls on stop (default 5 s).
+(default 1); `--grace` is the time left to running calls on stop (default 5 s);
+`--transport` overrides `FASTGRPC_TRANSPORT` and the app's choice (see
+[Transport](server.md#transport)).
 
 ## `lock`
 

@@ -1,35 +1,108 @@
-"""Choosing the transport: `GrpcApp(transport=...)`, `FASTGRPC_TRANSPORT`, refusals."""
+"""Choosing the transport: `GrpcApp(transport=...)`, `FASTGRPC_TRANSPORT`, `run --transport`,
+availability, version and capability checks."""
 
+import importlib.util
+import os
+import subprocess
+import sys
+from typing import Any
+
+import grpc.aio
 import pytest
 
-from fastgrpc3 import GrpcApp, Insecure
+from fastgrpc3 import GrpcApp, Insecure, Transport, available_transports, cli
+
+
+def app_with(**options: Any) -> GrpcApp:
+    app = GrpcApp(tls=Insecure(), address="127.0.0.1:0", **options)
+    app.enable_health()  # an app needs a service to start
+    return app
+
+
+@pytest.fixture(autouse=True)
+def no_transport_variable(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("FASTGRPC_TRANSPORT", raising=False)
 
 
 async def test_unknown_transports_are_refused(monkeypatch: pytest.MonkeyPatch) -> None:
     with pytest.raises(ValueError, match="unknown transport 'h2'"):
-        GrpcApp(tls=Insecure(), transport="h2")  # type: ignore[arg-type]
+        GrpcApp(tls=Insecure(), transport="h2")
     monkeypatch.setenv("FASTGRPC_TRANSPORT", "h2")
-    app = GrpcApp(tls=Insecure())
-    app.enable_health()  # an app needs a service to start
     with pytest.raises(ValueError, match="unknown transport 'h2'"):
-        await app.start()
+        await app_with().start()
 
 
-async def test_tonic_refuses_the_settings_it_does_not_support(
+def test_transports_are_an_enum_or_their_name() -> None:
+    assert GrpcApp(tls=Insecure()).transport is Transport("grpc_aio")
+    assert GrpcApp(tls=Insecure(), transport="tonic").transport is Transport.TONIC
+
+
+def test_the_command_line_wins_over_the_variable_which_wins_over_the_app(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    app = GrpcApp(tls=Insecure(), transport=Transport.TONIC)
+    selected = [app.selected_transport]
+    monkeypatch.setenv("FASTGRPC_TRANSPORT", "grpc_aio")
+    selected.append(app.selected_transport)
+    assert selected == [Transport.TONIC, Transport.GRPC_AIO]
+
+    seen = []
+    monkeypatch.setattr(cli, "serve", lambda *_: seen.append(os.environ["FASTGRPC_TRANSPORT"]))
+    cli.main(["run", "app:app", "--transport", "tonic"])
+    assert seen == ["tonic"]
+
+
+def test_importing_fastgrpc3_does_not_load_the_extension() -> None:
+    code = "import sys, fastgrpc3; fastgrpc3.available_transports(); print(sorted(sys.modules))"
+    modules = subprocess.run(
+        [sys.executable, "-c", code], check=True, capture_output=True, text=True
+    ).stdout
+    assert "fastgrpc3_transport" not in modules
+
+
+async def test_a_missing_transport_is_reported_at_start(monkeypatch: pytest.MonkeyPatch) -> None:
+    real = importlib.util.find_spec
+    monkeypatch.setattr(
+        importlib.util,
+        "find_spec",
+        lambda name, *a: None if name == "fastgrpc3_transport" else real(name, *a),
+    )
+    assert available_transports() == [Transport.GRPC_AIO]
+    with pytest.raises(RuntimeError, match=r'pip install "fastgrpc3\[tonic\]"'):
+        await app_with(transport="tonic").start()
+
+
+async def test_an_incompatible_transport_is_reported_at_start(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    native = pytest.importorskip("fastgrpc3_transport")
+    assert available_transports() == [Transport.GRPC_AIO, Transport.TONIC]
+    monkeypatch.setattr(native, "TRANSPORT_API_VERSION", 2)
+    monkeypatch.delitem(sys.modules, "fastgrpc3.transport.tonic", raising=False)
+    with pytest.raises(RuntimeError, match="Required transport API: 1\nDetected transport API: 2"):
+        await app_with(transport="tonic").start()
+
+
+async def test_tonic_refuses_what_it_cannot_do() -> None:
     pytest.importorskip("fastgrpc3_transport")
-    monkeypatch.delenv("FASTGRPC_TRANSPORT", raising=False)
-    app = GrpcApp(tls=Insecure(), transport="tonic", options=[("grpc.x", 1)])
-    app.enable_health()
+    app = app_with(transport="tonic", options=[("grpc.x", 1)])
+    assert not app.transport_capabilities.raw_grpc_options
     with pytest.raises(ValueError, match=r"does not support the grpc option 'grpc\.x'"):
         await app.start()
     assert app.bound_port is None
 
+    class Native(grpc.aio.ServerInterceptor):
+        async def intercept_service(self, continuation: Any, details: Any) -> Any:
+            return await continuation(details)
 
-async def test_the_environment_variable_wins(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("FASTGRPC_TRANSPORT", "grpc_aio")
-    app = GrpcApp(tls=Insecure(), address="127.0.0.1:0", transport="tonic", options=[("x", 1)])
-    app.enable_health()
-    await app.start()  # grpc_aio takes any option
+    app = app_with(transport="tonic", server_interceptors=[Native()])
+    assert not app.transport_capabilities.native_grpc_aio_interceptors
+    with pytest.raises(ValueError, match="Use fastgrpc3 middleware or select grpc_aio"):
+        await app.start()
+
+
+async def test_grpc_aio_takes_any_option() -> None:
+    app = app_with(options=[("grpc.so_reuseport", 0)])
+    assert app.transport_capabilities.raw_grpc_options
+    await app.start()
     await app.stop(None)

@@ -11,6 +11,7 @@ invoker per method and starts the server.
 
 import asyncio
 import contextlib
+import importlib.util
 import logging
 import os
 import signal
@@ -46,6 +47,7 @@ from fastgrpc3.ops.reflection import reflection_services
 from fastgrpc3.runtime.dispatch import ExceptionHandler, Hook, Invoker, Middleware, Pipeline
 from fastgrpc3.schema import Lock, Schema, SchemaRegistry
 from fastgrpc3.schema.lock import Unlocked
+from fastgrpc3.transport import CAPABILITIES, Transport, TransportCapabilities
 from fastgrpc3.transport.base import TransportBackend
 from fastgrpc3.transport.grpc_aio import GrpcAioTransport
 
@@ -57,7 +59,6 @@ __all__ = ["GrpcApp"]
 logger = logging.getLogger("fastgrpc3")
 
 Lifespan = Callable[["GrpcApp"], contextlib.AbstractAsyncContextManager[None]]
-TransportName = Literal["grpc_aio", "tonic"]
 _COMPRESSIONS = {Compression.Gzip: "gzip", Compression.Deflate: "deflate"}
 
 
@@ -83,12 +84,12 @@ class GrpcApp:
         sync_providers: Literal["loop", "threadpool"] = "loop",
         validate_requests: bool = True,
         options: Sequence[tuple[str, int | str]] = (),
-        transport: TransportName = "grpc_aio",
+        transport: Transport | str = Transport.GRPC_AIO,
     ) -> None:
         self.title = title
-        #: `"grpc_aio"`, or `"tonic"` (experimental, needs `fastgrpc3-transport`); the
-        #: `FASTGRPC_TRANSPORT` environment variable takes precedence.
-        self.transport: TransportName = _check_transport(transport)
+        #: `Transport.GRPC_AIO`, or `Transport.TONIC` (experimental, `fastgrpc3[tonic]`);
+        #: `fastgrpc3 run --transport` and then `FASTGRPC_TRANSPORT` take precedence.
+        self.transport = _check_transport(transport)
         self.address = address
         self.tls = check_security(tls)
         self.compression = compression
@@ -318,9 +319,20 @@ class GrpcApp:
         if self._server is not None:
             raise RuntimeError("the server is already started")
 
+    @property
+    def selected_transport(self) -> Transport:
+        """The transport `start()` uses: `FASTGRPC_TRANSPORT` (which `fastgrpc3 run
+        --transport` sets), else `transport`."""
+        return _check_transport(os.environ.get("FASTGRPC_TRANSPORT") or self.transport)
+
+    @property
+    def transport_capabilities(self) -> TransportCapabilities:
+        """What the selected transport supports."""
+        return CAPABILITIES[self.selected_transport]
+
     def _transport(self, security: Security) -> TransportBackend:
-        transport = _check_transport(os.environ.get("FASTGRPC_TRANSPORT") or self.transport)
-        if transport == "grpc_aio":
+        transport, capabilities = self.selected_transport, self.transport_capabilities
+        if transport == Transport.GRPC_AIO:
             return GrpcAioTransport(
                 self.address,
                 security,
@@ -329,22 +341,25 @@ class GrpcApp:
                 maximum_concurrent_rpcs=self.maximum_concurrent_rpcs,
                 compression=self.compression,
             )
-        if self.server_interceptors:
+        if self.server_interceptors and not capabilities.native_grpc_aio_interceptors:
             raise ValueError(
-                "transport 'tonic' does not support native grpc.aio server interceptors: "
-                "use fastgrpc3 middlewares or select grpc_aio"
+                f"Transport {transport.value!r} does not support native grpc.aio server "
+                "interceptors.\n\nUse fastgrpc3 middleware or select grpc_aio."
             )
         reuse_port = False
         for name, value in self.options:  # `run --workers` shares the port
-            if name != "grpc.so_reuseport":
-                raise ValueError(f"transport 'tonic' does not support the grpc option {name!r}")
+            if name != "grpc.so_reuseport" and not capabilities.raw_grpc_options:
+                raise ValueError(
+                    f"Transport {transport.value!r} does not support the grpc option {name!r}."
+                )
             reuse_port = bool(value)
-        try:
-            from fastgrpc3.transport.tonic import TonicTransport
-        except ImportError as e:
+        if importlib.util.find_spec("fastgrpc3_transport") is None:
             raise RuntimeError(
-                "transport 'tonic' is not installed: pip install fastgrpc3-transport"
-            ) from e
+                "Transport 'tonic' is not installed.\n\n"
+                'Install it with:\n    pip install "fastgrpc3[tonic]"'
+            )
+        from fastgrpc3.transport.tonic import TonicTransport  # checks the transport API
+
         return TonicTransport(
             self.address,
             security=security,
@@ -413,10 +428,12 @@ class GrpcApp:
             await manager.__aexit__(None, None, None)
 
 
-def _check_transport(name: str) -> TransportName:
-    if name not in ("grpc_aio", "tonic"):
-        raise ValueError(f'unknown transport {name!r}: "grpc_aio" or "tonic"')
-    return name  # type: ignore[return-value]  # checked above
+def _check_transport(name: Transport | str) -> Transport:
+    try:
+        return Transport(name)
+    except ValueError:
+        choices = ", ".join(repr(t.value) for t in Transport)
+        raise ValueError(f"unknown transport {name!r}: {choices}") from None
 
 
 @contextlib.contextmanager

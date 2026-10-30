@@ -28,12 +28,13 @@ app.add_service(service)
 | `validate_requests` | `True` | `False` builds requests without Pydantic validation: proto types are kept, the models' constraints and validators do not run; trusted clients only |
 | `sync_providers` | `"loop"` | where `def` dependency providers run: `"loop"` or `"threadpool"` (see [Dependencies](#dependencies)) |
 | `options` | `()` | raw `grpc` server options |
+| `transport` | `Transport.GRPC_AIO` | or `Transport.TONIC`; see [Transport](#transport) |
 
 PEM arguments take a path or the PEM bytes. With `MTLS`, clients must present a certificate
 signed by `ca`; their identity is in `ctx.peer_identities()`.
 
 Until `start()`, the app only holds configuration. `start()` compiles the contract of every
-service, builds one handler per method, and starts `grpc.aio`.
+service, builds one handler per method, and starts the transport (`grpc.aio` by default).
 
 ## Handlers
 
@@ -270,6 +271,53 @@ and is meant for development, or behind authentication. With TLS, pass `gateway_
 for its connection to the server. The docs serve one port, so they refuse
 `fastgrpc3 run --workers N`. Swagger UI's files come from a CDN; `swagger_ui_url=` points to
 your own copy.
+
+## Transport
+
+The server underneath is `grpc.aio` by default. **tonic**, a Rust server
+(`fastgrpc3-transport`, experimental), runs the same services, with the same handlers,
+dependencies, hooks, middlewares and errors, 6 to 10 times faster per core under
+concurrency (see [Performance](performance.md#on-tonic)).
+
+```bash
+pip install "fastgrpc3[tonic]"
+```
+
+Until it is published on PyPI, install `fastgrpc3-transport` from its repository
+(`uv add --editable ../fastgrpc3-transport`, which needs a Rust toolchain).
+
+Choose it without changing the application, in this order of precedence:
+
+1. `fastgrpc3 run app:app --transport tonic`;
+2. the environment variable `FASTGRPC_TRANSPORT=tonic`;
+3. `GrpcApp(..., transport=Transport.TONIC)` (or `"tonic"`);
+4. otherwise `grpc.aio`.
+
+```python
+from fastgrpc3 import Transport, available_transports
+
+available_transports()        # [Transport.GRPC_AIO, Transport.TONIC] when installed
+app.selected_transport        # what start() will use
+app.transport_capabilities    # TransportCapabilities(..., native_grpc_aio_interceptors=False)
+```
+
+Checking what is installed does not load the Rust extension; `start()` does, and fails with
+an explicit message if the transport is missing or its version does not match this
+fastgrpc3. A setting the selected transport cannot honour also fails at `start()`, never
+during a call. With tonic:
+
+- native `grpc.aio` interceptors (`server_interceptors`) are refused: use
+  [hooks and middlewares](#hooks-and-middlewares);
+- raw `options` are refused, except `("grpc.so_reuseport", 1)`, which `--workers` uses;
+- a unary call sends its response headers (`ctx.send_initial_metadata`) with its answer;
+- `ctx.auth_context()` has the certificate properties but no TLS session details
+  (`ssl_tls_version`...);
+- request metadata over `max_metadata_bytes` closes the client's connection, where
+  `grpc.aio` is more lenient;
+- `Keepalive.permit_without_calls` has no effect.
+
+The full comparison, with the test behind each line, is `docs/PARITY.md` in the
+`fastgrpc3-transport` repository.
 
 ## Running
 

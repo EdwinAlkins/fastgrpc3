@@ -86,6 +86,9 @@ Python 3.12 or later (tested on 3.12, 3.13 and 3.14). The dependencies are `grpc
   the RPCs (`fastgrpc3[docs]`).
 - `TLS`, `MTLS` or `Insecure`, always explicit; no credentials over an insecure channel.
 - `fastgrpc3 run --workers N` to serve on several processes.
+- Two transports: `grpc.aio`, or tonic, a Rust server several times faster per core
+  (`--transport tonic`, `fastgrpc3[tonic]`, experimental); see
+  [Transport](server.md#transport).
 - `TestClient` to test a service against a real local server.
 
 ## Develop fastgrpc3

@@ -16,13 +16,23 @@ import socket
 import sys
 from collections.abc import AsyncIterator
 
-from fastgrpc3_transport import CLOSED, SENT, Call, Server
+import fastgrpc3_transport
 
 from fastgrpc3.api.config import Keepalive, Limits
 from fastgrpc3.api.errors import GrpcError, StatusCode
 from fastgrpc3.api.security import MTLS, TLS, Insecure, Security, read_pem
 from fastgrpc3.runtime.dispatch import Invoker
 from fastgrpc3.transport.base import Pairs, RpcFailure
+
+#: The integration contract this module was written for (`fastgrpc3_transport`'s).
+TRANSPORT_API = 1
+_detected = getattr(fastgrpc3_transport, "TRANSPORT_API_VERSION", None)
+if _detected != TRANSPORT_API:
+    raise RuntimeError(
+        "Installed fastgrpc3-transport is incompatible with this version of fastgrpc3.\n\n"
+        f"Required transport API: {TRANSPORT_API}\nDetected transport API: {_detected}"
+    )
+Call = fastgrpc3_transport.Call
 
 __all__ = ["TonicTransport"]
 
@@ -58,7 +68,7 @@ class TonicTransport:
         host, _, port = address.rpartition(":")
         self.address = address
         self._host, self._port = host.strip("[]"), int(port)
-        self._server = Server(
+        self._server = fastgrpc3_transport.Server(
             threads=threads,
             max_concurrent_rpcs=maximum_concurrent_rpcs or _UNLIMITED,
             max_recv_bytes=limits.max_recv_bytes,
@@ -125,9 +135,9 @@ class TonicTransport:
         assert self._loop is not None
         while True:
             state = call.try_send(data)
-            if state == SENT:
+            if state == fastgrpc3_transport.SENT:
                 return True
-            if state == CLOSED:
+            if state == fastgrpc3_transport.CLOSED:
                 return False
             waiter = self._loop.create_future()
             self._writable[call.id] = waiter

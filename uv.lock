@@ -126,6 +126,9 @@ dependencies = [
 docs = [
     { name = "uvicorn" },
 ]
+tonic = [
+    { name = "fastgrpc3-transport" },
+]
 
 [package.dev-dependencies]
 bench = [
@@ -143,12 +146,13 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "fastgrpc3-transport", marker = "extra == 'tonic'", directory = "../fastgrpc3-transport" },
     { name = "grpcio", specifier = ">=1.75.1" },
     { name = "protoruf", specifier = ">=0.5.3" },
     { name = "pydantic", specifier = ">=2.11" },
     { name = "uvicorn", marker = "extra == 'docs'", specifier = ">=0.30" },
 ]
-provides-extras = ["docs"]
+provides-extras = ["docs", "tonic"]
 
 [package.metadata.requires-dev]
 bench = [
@@ -163,6 +167,11 @@ dev = [
     { name = "types-grpcio", specifier = ">=1.85.0.20261028" },
     { name = "uvicorn", specifier = ">=0.30" },
 ]
+
+[[package]]
+name = "fastgrpc3-transport"
+version = "0.1.0"
+source = { directory = "../fastgrpc3-transport" }
 
 [[package]]
 name = "grpcio"

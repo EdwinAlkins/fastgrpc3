@@ -44,6 +44,19 @@ validating 1,000 nested objects does, which is what `validate_requests=False` sa
 
 To use more than one core, run several processes: `fastgrpc3 run app:app --workers N`.
 
+### On tonic
+
+The same fastgrpc3 server (validation included) on each [transport](server.md#transport),
+one core, in one session, lowest of two passes (requests per second):
+
+| | small c=1 | small c=16 | small c=64 | medium c=1 | medium c=16 | medium c=64 |
+|-|------:|------:|------:|------:|------:|------:|
+| `grpc.aio` | 4,034 | 4,273 | 4,257 | 3,523 | 3,914 | 3,922 |
+| tonic | 7,941 | 34,476 | 44,324 | 5,738 | 23,812 | 29,896 |
+
+tonic is about 2× faster for one client at a time, and 6 to 10× under concurrency: the
+HTTP/2 and gRPC work is done in Rust, and the asyncio loop takes calls by batches.
+
 ## Dependencies
 
 Each `Depends(...)` adds a little to a call. Small message, 16 concurrent calls, one server

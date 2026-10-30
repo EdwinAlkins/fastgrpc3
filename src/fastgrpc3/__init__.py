@@ -26,6 +26,7 @@ from fastgrpc3.schema import (
     SchemaRegistry,
     ServiceDef,
 )
+from fastgrpc3.transport import Transport, TransportCapabilities, available_transports
 from fastgrpc3.types import ProtoEnum, ProtoField, ProtoModel, field, key, proto_enum
 
 __version__ = "0.1.0.dev0"
@@ -61,7 +62,10 @@ __all__ = [
     "SchemaRegistry",
     "ServiceDef",
     "StatusCode",
+    "Transport",
+    "TransportCapabilities",
     "__version__",
+    "available_transports",
     "blocking",
     "field",
     "key",

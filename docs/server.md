@@ -276,8 +276,9 @@ your own copy.
 
 The server underneath is `grpc.aio` by default. **tonic**, a Rust server
 (`fastgrpc3-transport`, experimental), runs the same services, with the same handlers,
-dependencies, hooks, middlewares and errors, 6 to 10 times faster per core under
-concurrency (see [Performance](performance.md#on-tonic)).
+dependencies, hooks, middlewares and errors, 8 to 14 times faster per core under
+concurrency, with up to 17 times less CPU per call (see
+[Performance](performance.md#at-a-glance)).
 
 ```bash
 pip install "fastgrpc3[tonic]"

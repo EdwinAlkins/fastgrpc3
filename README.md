@@ -1,28 +1,92 @@
 # fastgrpc3
 
-A FastAPI-like gRPC framework for Python: async handlers, Pydantic models, dependency
-injection and typed clients, on top of `grpc.aio`.
+**gRPC for Python, the FastAPI way — and up to 14× faster per core.**
 
-> **Status: early development.** Contracts, server, client, health checking, reflection and
-> multi-process serving work; documentation is still to come. The API may change.
+[![PyPI](https://img.shields.io/pypi/v/fastgrpc3)](https://pypi.org/project/fastgrpc3/)
+[![Python](https://img.shields.io/pypi/pyversions/fastgrpc3)](https://pypi.org/project/fastgrpc3/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-On a 20-field message, the codec is 4× faster than fastgrpc2's and the framework costs ~7 %
-over plain `grpc.aio` with generated stubs, validation included (`benches/results/`).
+Write gRPC services as plain `async` functions with Pydantic models. fastgrpc3 gives you
+dependency injection, typed clients, rich errors, health checking, reflection and
+interactive docs — and protobuf encoded and decoded in Rust. Add the Rust transport, and the
+same app serves **62,000 calls per second on a single core**.
 
-- **Two ways to declare a contract.** Start from `.proto` files and generate the Pydantic
-  models, services and clients, or write Pydantic models and get the `.proto` generated.
-- **Fast protobuf codec.** Encoding and decoding run in Rust through
-  [protoruf](https://github.com/EdwinAlkins/protoruf), straight between protobuf bytes and
-  Python objects, without any JSON step.
-- **Standard gRPC.** Real protobuf on the wire, standard error details, health checking and
-  server reflection, so clients in any language can talk to it.
-- **Two transports.** `grpc.aio` by default, or tonic, a Rust server 6 to 10× faster per
-  core under concurrency (`--transport tonic`, extra `fastgrpc3[tonic]`, experimental).
-- **Interactive docs.** Swagger UI generated from the models, with a JSON gateway to try the
-  RPCs from the browser (`app.enable_docs()`, extra `fastgrpc3[docs]`).
+```python
+from pydantic import BaseModel
+from fastgrpc3 import GrpcApp, GrpcService, Insecure
 
-Requires Python 3.12 or later (tested on 3.12, 3.13 and 3.14).
 
+class Hello(BaseModel):
+    name: str
+
+
+class Reply(BaseModel):
+    text: str
+
+
+service = GrpcService("Greeter", package="hello.v1")
+
+
+@service.unary()
+async def SayHello(req: Hello) -> Reply:
+    return Reply(text=f"Hello, {req.name}!")
+
+
+app = GrpcApp(tls=Insecure())
+app.add_service(service)
+```
+
+```bash
+pip install "fastgrpc3[tonic]"
+fastgrpc3 run hello:app --transport tonic
+```
+
+## Why fastgrpc3
+
+- **Fast where it counts.** On one core, an app on the tonic transport answers 14× more
+  calls than on `grpc.aio`, with 17× less CPU per call and a p99 latency 8× lower — without
+  changing a line of the handlers. On `grpc.aio`, the framework costs about 3 % over
+  hand-written stubs.
+- **Pydantic in, Pydantic out.** Requests and responses are Pydantic models, validated on
+  the way in; protobuf runs in Rust through
+  [protoruf](https://github.com/EdwinAlkins/protoruf), with no `protoc` and no `_pb2` files.
+- **Two ways to declare a contract.** Write Pydantic models and get the `.proto`, with field
+  numbers pinned in `proto.lock` and breaking changes caught in CI; or start from `.proto`
+  files and generate models, services and typed clients that pass `mypy --strict`.
+- **Everything a service needs.** The four kinds of call, `Depends(...)` with `yield`
+  cleanup, hooks, middlewares, exception handlers, deadlines propagated to downstream calls,
+  standard `google.rpc` error details, `TestClient`.
+- **Standard gRPC.** Real protobuf on the wire: clients in any language can call your
+  service. Health checking (Kubernetes, `grpc-health-probe`), server reflection (`grpcurl`),
+  Swagger UI with a JSON gateway to try the RPCs from the browser.
+- **Secure by default.** `TLS(...)`, `MTLS(...)` or `Insecure()`, always explicit; client
+  identities from mTLS certificates.
+
+## Performance
+
+One CPU core, unary calls, 64 concurrent clients:
+
+| | calls/s | CPU per call | p99 |
+|---|--:|--:|--:|
+| **fastgrpc3 on tonic** | **62,240** | **13 µs** | **2.0 ms** |
+| fastgrpc3 on `grpc.aio` | 4,430 | 226 µs | 15.9 ms |
+| `grpc.aio` + generated stubs, no framework | 4,571 | 219 µs | 18.0 ms |
+| fastgrpc2 | 4,108 | 244 µs | 19.4 ms |
+
+The tonic transport ([fastgrpc3-transport](https://github.com/EdwinAlkins/fastgrpc3-transport))
+runs HTTP/2, gRPC framing, TLS and flow control in Rust and hands the calls to asyncio by
+batches; wheels for Linux, macOS and Windows. Medium and large messages, latency, several
+cores, dependencies, codec and method: [docs/performance.md](docs/performance.md).
+
+## Install
+
+```bash
+pip install fastgrpc3              # grpc.aio transport
+pip install "fastgrpc3[tonic]"     # + the Rust transport (experimental)
+pip install "fastgrpc3[docs]"      # + Swagger UI and the JSON gateway
+```
+
+Python 3.12, 3.13 and 3.14. fastgrpc3 is at version 0.1: the API may still change.
 A complete example, a bookstore service with its client and tests, is in
 [`examples/`](examples/README.md).
 

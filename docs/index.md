@@ -5,8 +5,13 @@ injection and typed clients, on top of `grpc.aio`. Messages are encoded and deco
 by [protoruf](https://github.com/EdwinAlkins/protoruf), straight between protobuf bytes and
 Pydantic models.
 
-!!! warning "Early development"
-    fastgrpc3 is at version 0.1: the API may still change.
+!!! tip "Fast"
+    On one CPU core, a fastgrpc3 app on the tonic transport answers **62,000 calls per
+    second** with **13 µs of CPU per call**: 14× the same app on `grpc.aio`, with a p99
+    latency 8× lower — and the handlers do not change. See [Performance](performance.md).
+
+!!! warning "Version 0.1"
+    The API may still change; the tonic transport is experimental.
 
 ## Two ways to write a contract
 
@@ -86,9 +91,9 @@ Python 3.12 or later (tested on 3.12, 3.13 and 3.14). The dependencies are `grpc
   the RPCs (`fastgrpc3[docs]`).
 - `TLS`, `MTLS` or `Insecure`, always explicit; no credentials over an insecure channel.
 - `fastgrpc3 run --workers N` to serve on several processes.
-- Two transports: `grpc.aio`, or tonic, a Rust server several times faster per core
+- Two transports: `grpc.aio`, or tonic, a Rust server up to 14× faster per core
   (`--transport tonic`, `fastgrpc3[tonic]`, experimental); see
-  [Transport](server.md#transport).
+  [Transport](server.md#transport) and [Performance](performance.md).
 - `TestClient` to test a service against a real local server.
 
 ## Develop fastgrpc3

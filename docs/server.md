@@ -296,9 +296,9 @@ Choose it without changing the application, in this order of precedence:
 ```python
 from fastgrpc3 import Transport, available_transports
 
-available_transports()        # [Transport.GRPC_AIO, Transport.TONIC] when installed
-app.selected_transport        # what start() will use
-app.transport_capabilities    # TransportCapabilities(..., native_grpc_aio_interceptors=False)
+available_transports()  # [Transport.GRPC_AIO, Transport.TONIC] when installed
+app.selected_transport  # what start() will use
+app.transport_capabilities  # TransportCapabilities(..., native_grpc_aio_interceptors=False)
 ```
 
 Checking what is installed does not load the Rust extension; `start()` does, and fails with

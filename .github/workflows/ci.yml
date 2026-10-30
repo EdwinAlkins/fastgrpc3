@@ -38,7 +38,9 @@ jobs:
         uses: astral-sh/setup-uv@v5
         with:
           python-version: ${{ matrix.python-version }}
+      # The tonic extra builds fastgrpc3-transport from GitHub: the suite runs on both
+      # transports.
       - name: Install dependencies
-        run: uv sync --locked
+        run: uv sync --locked --extra tonic
       - name: Run pytest
         run: uv run pytest

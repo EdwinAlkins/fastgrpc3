@@ -1,6 +1,7 @@
 """Choosing the transport: `GrpcApp(transport=...)`, `FASTGRPC_TRANSPORT`, `run --transport`,
 availability, version and capability checks."""
 
+import asyncio
 import importlib.util
 import os
 import subprocess
@@ -11,6 +12,10 @@ import grpc.aio
 import pytest
 
 from fastgrpc3 import GrpcApp, Insecure, Transport, available_transports, cli
+from fastgrpc3._proto.grpc.health.v1.health_models import HealthCheckRequest
+from fastgrpc3._proto.grpc.health.v1.health_service import HealthClient
+from fastgrpc3.ops.health import ServingStatus
+from fastgrpc3.testing import TestClient
 
 
 def app_with(**options: Any) -> GrpcApp:
@@ -106,3 +111,26 @@ async def test_grpc_aio_takes_any_option() -> None:
     assert app.transport_capabilities.raw_grpc_options
     await app.start()
     await app.stop(None)
+
+
+async def test_tonic_serves_where_the_loop_cannot_watch_a_socket(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Windows' Proactor loop has no `add_reader`: a task reads the wake-ups instead."""
+    pytest.importorskip("fastgrpc3_transport")
+    from fastgrpc3.transport.tonic import TonicTransport
+
+    loop = asyncio.get_running_loop()
+    add_reader = loop.add_reader
+
+    def proactor_like(fd: Any, callback: Any, *args: Any) -> None:
+        if isinstance(getattr(callback, "__self__", None), TonicTransport):
+            raise NotImplementedError
+        add_reader(fd, callback, *args)  # grpc's client still watches its own socket
+
+    monkeypatch.setattr(loop, "add_reader", proactor_like)
+    app = app_with(transport="tonic")
+    async with TestClient(app) as tc:
+        assert isinstance(app._server, TonicTransport) and app._server._waker_task
+        reply = await tc.client(HealthClient).check(HealthCheckRequest())
+    assert reply.status == ServingStatus.SERVING

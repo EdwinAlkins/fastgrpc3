@@ -89,6 +89,8 @@ class TonicTransport:
         self._writable: dict[int, asyncio.Future[None]] = {}
         self._inboxes: dict[int, Inbox] = {}
         self._wake: socket.socket | None = None
+        #: Reads the wake-up socket where the loop cannot watch it (Windows' Proactor).
+        self._waker_task: asyncio.Task[None] | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
         self._stopped = asyncio.Event()
 
@@ -105,7 +107,10 @@ class TonicTransport:
             raise RuntimeError(f"cannot bind {self.address}") from e
         self._wake = socket.socket(fileno=fd)
         self._loop = asyncio.get_running_loop()
-        self._loop.add_reader(fd, self._readable)
+        try:
+            self._loop.add_reader(fd, self._readable)
+        except NotImplementedError:
+            self._waker_task = self._loop.create_task(self._read_wake_ups(self._wake))
         return port
 
     async def stop(self, grace: float | None) -> None:
@@ -120,7 +125,11 @@ class TonicTransport:
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
-        self._loop.remove_reader(self._wake.fileno())
+        if self._waker_task is not None:
+            self._waker_task.cancel()
+            await asyncio.gather(self._waker_task, return_exceptions=True)
+        else:
+            self._loop.remove_reader(self._wake.fileno())
         self._server.join()
         self._wake.close()
         self._wake = None
@@ -143,6 +152,11 @@ class TonicTransport:
             self._writable[call.id] = waiter
             call.when_writable()
             await waiter
+
+    async def _read_wake_ups(self, wake: socket.socket) -> None:
+        assert self._loop is not None
+        while await self._loop.sock_recv(wake, 4096):
+            self._pump()
 
     def _readable(self) -> None:
         assert self._wake is not None

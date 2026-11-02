@@ -1,6 +1,6 @@
 [project]
 name = "fastgrpc3"
-version = "0.1.1"
+version = "0.1.2"
 description = "FastAPI-like gRPC framework for Python: contracts from .proto files or Pydantic models, powered by protoruf (Rust)"
 readme = "README.md"
 license = "MIT"

@@ -5,6 +5,13 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/) (0.x: the API may change between minor
 versions).
 
+## [0.1.2] - 2026-11-02
+
+### Documentation
+
+- A logo: on the README (GitHub and PyPI) and the documentation home page; the bird mark is
+  the documentation's icon and favicon.
+
 ## [0.1.1] - 2026-10-30
 
 ### Documentation
@@ -37,5 +44,6 @@ First release: a FastAPI-like gRPC framework for Python on the protoruf codec.
 - Two transports: `grpc.aio` (default) and tonic, a Rust server (extra `fastgrpc3[tonic]`,
   experimental): `GrpcApp(transport=...)`, `FASTGRPC_TRANSPORT`, `available_transports()`.
 
+[0.1.2]: https://github.com/EdwinAlkins/fastgrpc3/releases/tag/v0.1.2
 [0.1.1]: https://github.com/EdwinAlkins/fastgrpc3/releases/tag/v0.1.1
 [0.1.0]: https://github.com/EdwinAlkins/fastgrpc3/releases/tag/v0.1.0

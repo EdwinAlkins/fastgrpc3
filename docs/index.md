@@ -1,5 +1,7 @@
 # fastgrpc3
 
+![fastgrpc3](assets/logo-with-text.png){ width="600" }
+
 A FastAPI-like gRPC framework for Python: async handlers, Pydantic models, dependency
 injection and typed clients, on top of `grpc.aio`. Messages are encoded and decoded in Rust
 by [protoruf](https://github.com/EdwinAlkins/protoruf), straight between protobuf bytes and

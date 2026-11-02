@@ -1,4 +1,6 @@
-# fastgrpc3
+<p align="center">
+  <img src="https://raw.githubusercontent.com/EdwinAlkins/fastgrpc3/main/docs/assets/logo-with-text.png" alt="fastgrpc3" width="600">
+</p>
 
 **gRPC for Python, the FastAPI way — and up to 14× faster per core.**
 
